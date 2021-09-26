@@ -24,6 +24,7 @@ static void convolution_transform_kernel_pack4_neon(const Mat& weight_data, Mat&
 
     for (int q = 0; q + 3 < num_output; q += 4)
     {
+//        printf("q=%d, tid=%ld,cpu=%d\n", q, pthread_self(), sched_getcpu());
         const Mat k0 = weight_data_r2.channel(q);
         const Mat k1 = weight_data_r2.channel(q + 1);
         const Mat k2 = weight_data_r2.channel(q + 2);
@@ -118,6 +119,7 @@ static void convolution_pack4_neon(const Mat& bottom_blob, Mat& top_blob, const 
     #pragma omp parallel for num_threads(opt.num_threads)
     for (int p = 0; p < outch; p++)
     {
+//        printf("p=%d, tid=%ld,cpu=%d\n", p, pthread_self(), sched_getcpu());
         float* outptr = top_blob.channel(p);
 
         for (int i = 0; i < outh; i++)

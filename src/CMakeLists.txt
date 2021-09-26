@@ -31,7 +31,8 @@ set(ncnn_SRCS
     mat_pixel_resize.cpp
     mat_pixel_rotate.cpp
     modelbin.cpp
-    net.cpp
+#    net.cpp
+        net_new.cpp
     option.cpp
     paramdict.cpp
     pipeline.cpp
@@ -399,7 +400,8 @@ if(NCNN_INSTALL_SDK)
         layer_type.h
         mat.h
         modelbin.h
-        net.h
+#        net.h
+            net_new.h
         option.h
         paramdict.h
         pipeline.h

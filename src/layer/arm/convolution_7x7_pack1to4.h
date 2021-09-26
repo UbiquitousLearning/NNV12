@@ -24,17 +24,38 @@ static void conv7x7s2_pack1to4_neon(const Mat& bottom_blob, Mat& top_blob, const
     const int tailstep = w - 2 * outw + w;
 
     const float* bias = _bias;
+//    struct timeval tv;
+//    gettimeofday(&tv, NULL);
+//    double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+//    double tt_time=0;
+//    double tt_time1=0;
 
     #pragma omp parallel for num_threads(opt.num_threads)
     for (int p = 0; p < outch; p++)
     {
+//        printf("p=%d, tid=%d,cpu=%d\n", p, pthread_self(), sched_getcpu());
         Mat out0 = top_blob.channel(p);
 
         float32x4_t _bias0 = bias ? vld1q_f32((const float*)bias + p * 4) : vdupq_n_f32(0.f);
+
+//            struct timeval tv0;
+//            gettimeofday(&tv0, NULL);
+//            double start0 = tv0.tv_sec * 1000.0 + tv0.tv_usec / 1000.0;
         out0.fill(_bias0);
+//            struct timeval tv10;
+//            gettimeofday(&tv10, NULL);
+//            double end0 = tv10.tv_sec * 1000.0 + tv10.tv_usec / 1000.0;
+////            printf("%f\n", end0 - start0);
+//            tt_time += (end0 - start0);
+
+//        struct timeval tv2;
+//        gettimeofday(&tv2, NULL);
+//        double start2 = tv2.tv_sec * 1000.0 + tv2.tv_usec / 1000.0;
 
         for (int q = 0; q < inch; q++)
         {
+
+//            printf("p=%d, q=%d tid=%d,cpu=%d\n", p, q, pthread_self(), sched_getcpu());
             float* outptr0 = out0.row(0);
 
             const Mat img0 = bottom_blob.channel(q);
@@ -51,12 +72,22 @@ static void conv7x7s2_pack1to4_neon(const Mat& bottom_blob, Mat& top_blob, const
 
             int i = 0;
 
+//            struct timeval tv;
+//            gettimeofday(&tv, NULL);
+//            double startin = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
             for (; i < outh; i++)
             {
                 int j = 0;
 #if __aarch64__
+//                struct timeval tvin;
+//                gettimeofday(&tvin, NULL);
+//                double startinin = tvin.tv_sec * 1000.0 + tvin.tv_usec / 1000.0;
+//                double sum_time = 0;
                 for (; j + 7 < outw; j += 8)
                 {
+//                    struct timeval tv;
+//                    gettimeofday(&tv, NULL);
+//                    double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
                     asm volatile(
                         "prfm   pldl1keep, [%0, #512]       \n"
                         "ld1    {v16.4s, v17.4s, v18.4s, v19.4s}, [%0], #64 \n"
@@ -616,8 +647,21 @@ static void conv7x7s2_pack1to4_neon(const Mat& bottom_blob, Mat& top_blob, const
                         "7"(r6),
                         "8"(kptr)
                         : "memory", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v16", "v17", "v18", "v19", "v24", "v25", "v26", "v27", "v28", "v29", "v30");
+//                    struct timeval tv1;
+//                    gettimeofday(&tv1, NULL);
+//                    double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
+//                    if(p==12&&q==0)&&j+i==0)
+//                      printf("  inn time=%f,tid=%ld,cpu=%d\n", end - start, pthread_self(), sched_getcpu());
+////                    if(p==12&&q==0)
+////                        sum_time+=(end - start);
                 }
+//                struct timeval tvin1;
+//                gettimeofday(&tvin1, NULL);
+//                double endinin = tvin1.tv_sec * 1000.0 + tvin1.tv_usec / 1000.0;
+//                if(p==12&&q==0&&i==0)
+//                    printf("    %d in p=%d q=%d  time=%f %f\n", __aarch64__, p, q, endinin - startinin, sum_time);
 #endif // __aarch64__
+
                 for (; j + 3 < outw; j += 4)
                 {
 #if __aarch64__
@@ -2103,7 +2147,33 @@ static void conv7x7s2_pack1to4_neon(const Mat& bottom_blob, Mat& top_blob, const
                 r4 += tailstep;
                 r5 += tailstep;
                 r6 += tailstep;
+
+//                struct timeval tvin1;
+//                gettimeofday(&tvin1, NULL);
+//                double endinin = tvin1.tv_sec * 1000.0 + tvin1.tv_usec / 1000.0;
+//                if(p==12)
+//                    printf("    p=%d q=%d  time=%f\n", p, q, endinin - startinin);
             }
+//            struct timeval tv1;
+//            gettimeofday(&tv1, NULL);
+//            double endin = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
+//            if(p==12)
+//                printf("p=%d q=%d  time=%f cpu=%d\n", p, q, endin - startin, sched_getcpu());
+            ////////////////////////////////////////////////
+
         }
+
+//        struct timeval tv12;
+//        gettimeofday(&tv12, NULL);
+//        double end2 = tv12.tv_sec * 1000.0 + tv12.tv_usec / 1000.0;
+//        tt_time1 += (end2 - start2);
+//        printf("7x7 p=%d, time=%f,tid=%ld,cpu=%d\n", p, end2 - start2, pthread_self(), sched_getcpu());
     }
+//    printf("tt_time=%f\t", tt_time);
+//    printf("tt_time1=%f\n", tt_time1);
+//
+//    struct timeval tv1;
+//    gettimeofday(&tv1, NULL);
+//    double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
+//    printf("%f\n", end - start);
 }

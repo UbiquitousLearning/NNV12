@@ -13,3 +13,14 @@ endif()
 
 # add benchncnn to a virtual project group
 set_property(TARGET benchncnn PROPERTY FOLDER "benchmark")
+
+
+add_executable(benchncnn1 benchncnn1.cpp)
+target_link_libraries(benchncnn1 PRIVATE ncnn)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    target_link_libraries(benchncnn1 PRIVATE nodefs.js)
+endif()
+
+# add benchncnn to a virtual project group
+set_property(TARGET benchncnn1 PROPERTY FOLDER "benchmark")

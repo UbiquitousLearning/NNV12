@@ -33,6 +33,10 @@ static void conv5x5s1_neon(const Mat& bottom_blob, Mat& top_blob, const Mat& _ke
 
         out.fill(bias0);
 
+//        struct timeval tv;
+//        gettimeofday(&tv, NULL);
+//        double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+
         for (int q = 0; q < inch; q++)
         {
             float* outptr = out;
@@ -967,6 +971,12 @@ static void conv5x5s1_neon(const Mat& bottom_blob, Mat& top_blob, const Mat& _ke
                 r4 += 4;
             }
         }
+
+//        struct timeval tv1;
+//        gettimeofday(&tv1, NULL);
+//        double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
+//        if(32 == inch*outch)
+//            printf("5x5 p=%d, time=%f,tid=%ld,cpu=%d\n", p, end - start, pthread_self(), sched_getcpu());
     }
 }
 

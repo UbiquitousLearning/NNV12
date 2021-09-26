@@ -47,6 +47,12 @@ static void conv1x1s1_neon(const Mat& bottom_blob, Mat& top_blob, const Mat& _ke
     #pragma omp parallel for num_threads(opt.num_threads)
     for (int pp = 0; pp < nn_outch; pp++)
     {
+//        printf("1 pp=%d, tid=%d,cpu=%d\n", pp,  pthread_self(), sched_getcpu());
+
+//        struct timeval tv;
+//        gettimeofday(&tv, NULL);
+//        double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+
         int p = pp * 8;
 
         Mat out0 = top_blob.channel(p);
@@ -664,6 +670,11 @@ static void conv1x1s1_neon(const Mat& bottom_blob, Mat& top_blob, const Mat& _ke
                 outptr7++;
             }
         }
+//        struct timeval tv1;
+//        gettimeofday(&tv1, NULL);
+//        double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
+//        if((top_blob.w == 28)&&(top_blob.h == 28)&&(top_blob.c == 8)&&(bottom_blob.w == 28)&&(bottom_blob.h == 28)&&(bottom_blob.c == 48))
+//            printf("1 p=%d, time=%f,tid=%d,cpu=%d\n", pp, end - start, pthread_self(), sched_getcpu());
     }
 
 #else
