@@ -2982,8 +2982,11 @@ VkTransfer::~VkTransfer()
     delete d;
 }
 
+Mutex record_upload_lock;
 void VkTransfer::record_upload(const Mat& src, VkMat& dst, const Option& opt, bool flatten)
 {
+    MutexLockGuard lock(record_upload_lock);
+//    printf("tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
     //     NCNN_LOGE("record_upload src = %d | %d %d %d @ %d", src.dims, src.w, src.h, src.c, src.elempack);
 
     // NOTE keep the hack here ?
@@ -3161,8 +3164,11 @@ void VkTransfer::record_upload(const Mat& src, VkMat& dst, const Option& opt, bo
     d->upload_staging_buffers.push_back(dst_staging);
 }
 
+//Mutex record_upload_lock;
 void VkTransfer::record_upload(const Mat& src, VkImageMat& dst, const Option& opt)
 {
+//    MutexLockGuard lock(record_upload_lock);
+
     //     NCNN_LOGE("record_upload image src = %d | %d %d %d @ %d", src.dims, src.w, src.h, src.c, src.elempack);
 
     // NOTE keep the hack here ?

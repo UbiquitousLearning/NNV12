@@ -57,6 +57,14 @@
 
 char globalbinpath[256];
 char gloableparampath[256];
+#define THR 1
+//#define ONE 1
+//#define TWO 1
+//#define FOR 1
+size_t dr_cpu=2;//5;
+size_t pipe_cpu=1;//6;
+size_t infer_cpu=0;//0;
+int warmUp = 1;
 
 double start_t = 0;
 
@@ -94,7 +102,6 @@ static ncnn::VkAllocator* g_blob_vkallocator = 0;
 static ncnn::VkAllocator* g_staging_vkallocator = 0;
 #endif // NCNN_VULKAN
 
-int warmUp = 0;
 void benchmark(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
 {
     ncnn::Mat in = _in;
@@ -230,7 +237,9 @@ void benchmark(const char* comment, const ncnn::Mat& _in, const ncnn::Option& op
 
     fprintf(stderr, "%20s  load param = %7.2f  load model = %7.2f  create pipeline = %7.2f  first = %7.2f  min = %7.2f  max = %7.2f  avg = %7.2f\n", comment, load_param_time, load_model_time, load_pipe_time, first_time, time_min, time_max, time_avg);
 }
-
+//pthread_t t_infer;
+//pthread_t t_pipe;
+//pthread_t t_dr;
 void inference(const ncnn::Net& net, const ncnn::Mat& in, bool print=true){
     const std::vector<const char*>& input_names = net.input_names();
     const std::vector<const char*>& output_names = net.output_names();
@@ -261,7 +270,7 @@ void inference(const ncnn::Net& net, const ncnn::Mat& in, bool print=true){
     ex.extract(output_names[0], out);
 
         float* ptr = (float*)out.data;
-        printf("%f\n", *ptr);
+//        printf("%f\n", *ptr);
     if(print)
     {
         infer_end = ncnn::get_current_time();
@@ -274,12 +283,306 @@ void inference(const ncnn::Net& net, const ncnn::Mat& in, bool print=true){
 
 }
 
+void *infer_thread(void *args){
+//   sleep(10);
+//    fprintf(stderr, "start infer\n");
+//#ifdef __CPU_MASK__
+//    cpu_set_t mask;  //CPU�˵ļ���
+//    cpu_set_t get;   //��ȡ�ڼ����е�CPU
+//    CPU_ZERO(&mask);    //�ÿ�
+//    CPU_SET(infer_cpu,&mask);   //�����׺���ֵ
+//    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//�����߳�CPU�׺���
+//    {
+//        printf("warning: could not set CPU affinity, continuing...\n");
+//    }
+//#endif
+
+
+    auto *net=(ncnn::Net*)args;
+
+    if(warmUp)
+    {
+        ncnn::Net net_in;
+        net_in.opt = net->opt;
+        char tparampath[256];
+        sprintf(tparampath, MODEL_DIR "mobilenet_v3.param"); //GoogleNet  //AlexNet
+        char tbinpath[256];
+        sprintf(tbinpath, MODEL_DIR "mobilenet_v3.bin");
+        net_in.load_param(tparampath);
+        int open = net_in.load_model_dr(tbinpath);
+        if (open < 0)
+        {
+            printf("load file files\n");
+            DataReaderFromEmpty dr;
+            net_in.load_model_dr(dr);
+        }
+        net_in.load_model_pipe();
+        //    printf("load p end %f\n", ncnn::get_current_time()-start_t);
+        for (int i = 0; i < 30; i++)
+        {
+            ncnn::Mat top;
+            //        conv7x7s2_pack1to4_neon(ncnn::Mat(227, 227, 3), top, ncnn::Mat(7,7, 3), ncnn::Mat(7,7, 3), net->opt);
+            inference(net_in, ncnn::Mat(227, 227, 3), false);
+            //        ncnn::do_forward_layer
+
+            //        printf("infer p end %f\n", ncnn::get_current_time()-start_t);
+        }
+    }
+    ncnn::current_layer_idx_f2p = 0;
+    ncnn::current_layer_idx_p2i = 0;
+    infer_start = 0;
+    pipe_start = 0;
+    for_cal_time = 0;
+    for_skp_time = 0;
+    read_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
+    create_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
+    infer_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
+
+
+//        int open = net->load_model_dr(globalbinpath);
+//        if (open<0)
+//        {
+//            printf("load file files\n");
+//            DataReaderFromEmpty dr;
+//            net->load_model_dr(dr);
+//        }
+//        net->load_model_pipe();
+//        for (int i=0; i<2; i++)
+//        {
+//            inference(*net, ncnn::Mat(227, 227, 3));
+//        }
+//    ncnn::current_layer_idx_f2p = 0;
+//    ncnn::current_layer_idx_p2i = 0;
+//    infer_start = 0;
+//    pipe_start = 0;
+//    for_cal_time = 0;
+//    for_skp_time = 0;
+
+//    net_in.load_model(globalbinpath);
+//    net_in.load_model_pipe();
+//    inference(net_in, ncnn::Mat(227, 227, 3));
+
+    //    net.load_param(gloableparampath);
+//
+
+
+    pthread_mutex_lock(&param_lock);
+    param_finish = 100;
+    param_finish_1 = 100;
+    pthread_mutex_unlock(&param_lock);
+    pthread_cond_signal(&param_cond);
+    pthread_cond_signal(&param_cond_1);
+
+
+    pthread_cond_signal(&param_cond_cpu0);
+    pthread_cond_signal(&param_cond_cpu1);
+    pthread_cond_signal(&param_cond_cpu2);
+    pthread_cond_signal(&param_cond_cpu3);
+
+    printf("param finish_____________\n");
+
+//    pthread_mutex_lock(&param_lock);
+//    while (param_finish_1 == 0 ){
+//        pthread_cond_wait(&param_cond_1, &param_lock);
+//    }
+//    pthread_mutex_unlock(&param_lock);
+
+//    int open = net->load_model_dr(globalbinpath);
+//    if (open<0)
+//    {
+//        printf("load file files\n");
+//        DataReaderFromEmpty dr;
+//        net->load_model_dr(dr);
+//    }
+//    net->load_model_pipe();
+//    net->load_model_pipe();
+//    net->load_model_pipe();
+//    net->load_model_pipe();
+//    net->load_model_pipe();
+//    inference(*net, ncnn::Mat(227, 227, 3));
+//    inference(*net, ncnn::Mat(227, 227, 3));
+//    inference(*net, ncnn::Mat(227, 227, 3));
+
+//    net->load_param(gloableparampath);
+    printf("_____________________________________________________________________________start %f\n", ncnn::get_current_time() - start_t);
+    printf("__________inf tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
+    inference(*net, ncnn::Mat(227, 227, 3), true);
+//    inference(net, ncnn::Mat(227, 227, 3));
+//    inference(*stu1, ncnn::Mat(227, 227, 3));
+//    inference(*stu1, ncnn::Mat(227, 227, 3));
+//    inference(*stu1, ncnn::Mat(227, 227, 3));
+//    inference(*stu1, ncnn::Mat(227, 227, 3));
+//    inference(*stu1, ncnn::Mat(227, 227, 3));
+//    inference(*stu1, ncnn::Mat(227, 227, 3));
+//    inference(*stu1, ncnn::Mat(227, 227, 3));
+//    inference(*stu1, ncnn::Mat(227, 227, 3));
+
+
+//    for(int ii=0; ii<0;ii++)
+//    {
+//        const std::vector<const char*>& input_names__ = net->input_names();
+//        const std::vector<const char*>& output_names__ = net->output_names();
+//
+//        ncnn::Mat out__;
+//
+//        infer_start = ncnn::get_current_time();
+//
+//        ncnn::Extractor ex__ = net->create_extractor();
+//        ex__.input(input_names__[0], ncnn::Mat(227, 227, 3));
+//        ex__.extract(output_names__[0], out__);
+//
+//        //        float* ptr = (float*)out__.data;
+//        //        printf("%f\n", *ptr);
+//
+//        infer_end = ncnn::get_current_time();
+//        infer_time = infer_end - infer_start;
+//        fprintf(stderr, "2d infer time =  %7.2f\n", infer_time);
+//    }
+
+    return 0;
+    //    printf("infer fork %d", fork());
+    //    while(1)
+    //        {
+    //            sleep(1);
+    //            printf("inf tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    //        }
+}
+
+void *dr_thread(void *args){
+#ifdef __CPU_MASK__
+    cpu_set_t mask;  //CPU�˵ļ���
+    cpu_set_t get;   //��ȡ�ڼ����е�CPU
+    CPU_ZERO(&mask);    //�ÿ�
+    CPU_SET(dr_cpu,&mask);   //�����׺���ֵ
+    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//�����߳�CPU�׺���
+    {
+        printf("warning: could not set CPU affinity, continuing...\n");
+    }
+#endif
+
+    //    fprintf(stderr, "start dr\n");
+    auto *net=(ncnn::Net*)args;
+    //    printf("drr tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+
+//    net.load_param(gloableparampath);
+
+//    pthread_mutex_lock(&param_lock);
+//    param_finish = 100;
+//    param_finish_1 = 100;
+//    pthread_mutex_unlock(&param_lock);
+//    pthread_cond_signal(&param_cond);
+//    pthread_cond_signal(&param_cond_1);
+//    printf("param finish_____________\n");
+
+        pthread_mutex_lock(&param_lock);
+        while (param_finish_1 == 0 ){
+            pthread_cond_wait(&param_cond_1, &param_lock);
+        }
+        pthread_mutex_unlock(&param_lock);
+//        net.load_param(gloableparampath);
+
+    dr_start = ncnn::get_current_time();
+
+    //    printf("%d\n", fork());
+
+//    ncnn::Layer* layer = net->layers()[0];
+//    net->load_model_dr_layer(gloableparampath, 0);
+
+    int open = net->load_model_dr(globalbinpath);
+    if (open<0)
+    {
+        printf("load file files\n");
+        DataReaderFromEmpty dr;
+        net->load_model_dr(dr);
+    }
+//
+//
+//    //    DataReaderFromEmpty dr;
+//    //    net->load_model_dr(dr);
+//
+    dr_end = ncnn::get_current_time();
+    dr_time = dr_end - dr_start;
+
+        fprintf(stderr, "load model = %7.2f\n", dr_time);
+    //    printf("dr fork %d", fork());
+    //    while(1)
+    //    {
+    //        sleep(1);
+    //        printf("drr tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    //    }
+
+    //    sleep(200000);
+    //    while(1);
+    return 0;
+//    pthread_exit(&t_dr);
+
+
+    //    inference(*net, ncnn::Mat(227, 227, 3));
+    //    fprintf(stderr, "inference\n");
+}
+
+void *pipe_thread(void *args){
+
+//    pthread_t t_pipe;
+    //pthread_t t_dr;
+
+#ifdef __CPU_MASK__
+    cpu_set_t mask;  //CPU�˵ļ���
+    cpu_set_t get;   //��ȡ�ڼ����е�CPU
+    CPU_ZERO(&mask);    //�ÿ�
+    CPU_SET(pipe_cpu,&mask);   //�����׺���ֵ
+    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//�����߳�CPU�׺���
+    {
+        printf("warning: could not set CPU affinity, continuing...\n");
+    }
+#endif
+    //    fprintf(stderr, "start pipe\n");
+//    net->load_param(gloableparampath);
+
+    //    printf("pip tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    //    pipe_start = ncnn::get_current_time();
+//    sleep(1);
+
+    pthread_mutex_lock(&param_lock);
+    while (param_finish == 0 ){
+        pthread_cond_wait(&param_cond, &param_lock);
+    }
+    pthread_mutex_unlock(&param_lock);
+//    net.load_param(gloableparampath);
+
+    auto *net=(ncnn::Net*)args;
+
+//    net->load_model_dr_layer(gloableparampath, 1);
+
+    net->load_model_pipe();
+
+    pipe_end = ncnn::get_current_time();
+    pipe_time = pipe_end - pipe_start;
+
+    //    fprintf(stderr, "load pipeline = %7.2f\n", pipe_time);
+    //    printf("pp fork %d", fork());
+    //    while(1)
+    //    {
+    //        sleep(1);
+    //        printf("pip tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    //    }
+
+    //    sleep(200000);
+    //    while(1);
+    return 0;
+//    pthread_exit(&t_pipe);
+
+    //    inference(*net, ncnn::Mat(227, 227, 3));
+    //    fprintf(stderr, "inference\n");
+}
+
 /////////////////////////////////////////////////////////////////////////////
+
+//DataReaderFromEmpty drp;
+//ncnn::ModelBinFromDataReader mb(drp);
 
 #define CPU_NUMS 4
 int CPU_LIST[] = {0, 1, 2, 3}; //{1,2};//
-//#define CPU_NUMS 6
-//int CPU_LIST[] = {0, 1, 2, 3, 4, 5}; //{1,2};//
 int CPU_VK_M = 7;
 pthread_cond_t param_cond_cpus[CPU_NUMS];
 std::vector<int> cpu_Vectors[CPU_NUMS];
@@ -331,6 +634,62 @@ void ReadBinaryFile( const char* comment, bool use_vulkan_compute)
     printf("rfile_time %f\n", e-start);
     isData.close();
 }
+
+//void WriteSprivBinaryFile( const char* comment)
+//{
+//    char path[256];
+//    sprintf(path, MODEL_DIR "%s.s.dat", comment);
+//    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+//
+//    int ssSize = ncnn::spriv_vectors.size();
+//    osData.write(reinterpret_cast<char *>(&ssSize), sizeof(ssSize));
+//    for (std::vector<uint32_t> s: ncnn::spriv_vectors)
+//    {
+//        int sSize = s.size();
+//        osData.write(reinterpret_cast<char *>(&sSize), sizeof(sSize));
+//        osData.write(reinterpret_cast<char *>(s.data()), sSize*sizeof(s.front()) );
+//
+//    }
+//    osData.close();
+//}
+//void ReadSprivBinaryFile( const char* comment)
+//{
+//
+//    double start = ncnn::get_current_time();
+//    char path[256];
+//    sprintf(path, MODEL_DIR "%s.s.dat", comment);
+//    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
+//    int ssSize;
+//    isData.read(reinterpret_cast<char *>(&ssSize),sizeof(ssSize));
+//    //    ncnn::spriv_vectors.resize(ssSize);
+//    if (isData)
+//    {
+//        for(int i=0; i<ssSize; i++)
+//        {
+//            int sSize;
+//            isData.read(reinterpret_cast<char*>(&sSize), sizeof(sSize));
+//            std::vector<uint32_t> spriv;
+//            spriv.resize(sSize);
+//            isData.read(reinterpret_cast<char*>(spriv.data()), sSize * sizeof(uint32_t));
+//            ncnn::spriv_vectors.push_back(spriv);
+//        }
+//
+//        //        printf("%d:{", sSize);
+//        //        for(int i : spriv){
+//        //            printf("%d,", i);
+//        //        }
+//        //        printf("}\n");
+//
+//
+//    }
+//    else
+//    {
+//        printf("ERROR: Cannot open file ����.dat");
+//    }
+//
+//    double e = ncnn::get_current_time();
+//    printf("rtime %f\n", e-start);
+//}
 void WriteDataReaderFile( const char* comment)
 {
 
@@ -374,6 +733,7 @@ void ReadDataReaderFile( const char* comment)
     }
     printf("}\n");
 }
+
 void WriteSprivMapBinaryFile( const char* comment)
 {
     char path[256];
@@ -734,8 +1094,30 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
     printf("\n==s====================\n");
     printf("\n=========s=============\n");
     double s_time = ncnn::get_current_time();
+//        std::thread t2(pipe_thread, (void*)&net);
+////        std::thread t2_(pipe_thread, (void*)&net);
+//        std::thread t1(dr_thread, (void*)&net);
+//        std::thread t3(infer_thread, (void*)&net);
+//
+//        t2.join();
+////        t2_.join();
+//        t1.join();
+//        t3.join();
 
-    warmUp =0;
+
+//        std::thread t_4567(thread_cpu4567, (void*)&net);
+//        net_cid net_cid0 =  {0, 1, &net};
+//        std::thread t_0(thread_list, (void*)&net_cid0);
+//        net_cid net_cid1 =  {1, 2, &net};
+//        std::thread t_1(thread_list, (void*)&net_cid1);
+//        t_4567.join();
+//        t_0.join();
+//        t_1.join();
+
+//        func_cpu4567(net);
+
+
+
         if(warmUp)
         {
             ncnn::Net net_in;
@@ -744,8 +1126,8 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
             sprintf(tparampath, MODEL_DIR "mobilenet_v3.param"); //GoogleNet  //AlexNet
             char tbinpath[256];
             sprintf(tbinpath, MODEL_DIR "mobilenet_v3.bin");
-            net_in.load_param(gloableparampath);
-            int open = net_in.load_model_dr(globalbinpath);
+            net_in.load_param(tparampath);
+            int open = net_in.load_model_dr(tbinpath);
             if (open < 0)
             {
                 printf("load file files\n");
@@ -1053,7 +1435,7 @@ int main(int argc, char** argv)
             ReadarmWeightDataReaderFile(model_name);
         }
     }
-    if(USE_PIPLIEN && (ARM_W_TEST == 0)){
+    if(USE_PIPLIEN){
         benchmark_new(model_name, in, opt);
     }
     else{
@@ -1074,7 +1456,8 @@ int main(int argc, char** argv)
             }
         }
     }
-
+//
+//        WriteDataReaderFile(model_name);
 ////       benchmark("AlexNet", ncnn::Mat(227, 227, 3), opt);
 ////       benchmark("GoogleNet", ncnn::Mat(227, 227, 3), opt);
 ////       WriteSprivMapBinaryFile("GoogleNet");

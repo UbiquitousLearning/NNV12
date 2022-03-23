@@ -17,12 +17,15 @@
 
 #include "platform.h"
 
+#include "benchmark.h"
 #if NCNN_VULKAN
 #include <vulkan/vulkan.h>
 #endif // NCNN_VULKAN
 
 #include "mat.h"
 #include "gpu.h"
+
+#include <map>
 
 namespace ncnn {
 
@@ -56,10 +59,50 @@ public:
                      VkPipeline* pipeline,
                      VkDescriptorUpdateTemplateKHR* descriptor_update_template,
                      ShaderInfo& shader_info) const;
+    int get_pipeline_to_vectors(std::vector<std::vector<uint32_t>>& spriv_vectors, int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
+                                uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                VkShaderModule* shader_module,
+                                VkDescriptorSetLayout* descriptorset_layout,
+                                VkPipelineLayout* pipeline_layout,
+                                VkPipeline* pipeline,
+                                VkDescriptorUpdateTemplateKHR* descriptor_update_template,
+                                ShaderInfo& shader_info) const;
+    int get_pipeline_from_vectors(std::vector<std::vector<uint32_t>>& spriv_vectors, int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
+                                  uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                  VkShaderModule* shader_module,
+                                  VkDescriptorSetLayout* descriptorset_layout,
+                                  VkPipelineLayout* pipeline_layout,
+                                  VkPipeline* pipeline,
+                                  VkDescriptorUpdateTemplateKHR* descriptor_update_template,
+                                  ShaderInfo& shader_info) const;
+    int get_pipeline_to_map(std::map <int, std::vector<uint32_t>>& spriv_map, int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
+                                uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                VkShaderModule* shader_module,
+                                VkDescriptorSetLayout* descriptorset_layout,
+                                VkPipelineLayout* pipeline_layout,
+                                VkPipeline* pipeline,
+                                VkDescriptorUpdateTemplateKHR* descriptor_update_template,
+                                ShaderInfo& shader_info) const;
+    int get_pipeline_from_map(std::map <int, std::vector<uint32_t>>& spriv_map, int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
+                                  uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                  VkShaderModule* shader_module,
+                                  VkDescriptorSetLayout* descriptorset_layout,
+                                  VkPipelineLayout* pipeline_layout,
+                                  VkPipeline* pipeline,
+                                  VkDescriptorUpdateTemplateKHR* descriptor_update_template,
+                                  ShaderInfo& shader_info) const;
 
 protected:
     int create_shader_module(int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
                              VkShaderModule* _shader_module, ShaderInfo& si) const;
+    int create_shader_module_to_vectors(std::vector<std::vector<uint32_t>>& spriv_vectors, int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                          VkShaderModule* _shader_module, ShaderInfo& si) const;
+    int create_shader_module_from_vectors(std::vector<std::vector<uint32_t>>& spriv_vectors, int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                          VkShaderModule* _shader_module, ShaderInfo& si) const;
+    int create_shader_module_to_map(std::map <int, std::vector<uint32_t>>& spriv_map, int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                        VkShaderModule* _shader_module, ShaderInfo& si) const;
+    int create_shader_module_from_map(std::map <int, std::vector<uint32_t>>& spriv_map, int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                          VkShaderModule* _shader_module, ShaderInfo& si) const;
 
     int new_pipeline(VkShaderModule shader_module, const ShaderInfo& shader_info, const std::vector<vk_specialization_type>& specializations,
                      VkDescriptorSetLayout* descriptorset_layout,

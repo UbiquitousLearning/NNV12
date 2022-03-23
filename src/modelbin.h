@@ -47,9 +47,9 @@ public:
 
     virtual Mat load(int w, int type) const;
 
-private:
-    ModelBinFromDataReader(const ModelBinFromDataReader&);
     ModelBinFromDataReader& operator=(const ModelBinFromDataReader&);
+
+    ModelBinFromDataReader(const ModelBinFromDataReader&);
 
 private:
     ModelBinFromDataReaderPrivate* const d;

@@ -310,6 +310,7 @@ static void conv3x3s1_winograd64_pack4_neon(const Mat& bottom_blob, Mat& top_blo
         #pragma omp parallel for num_threads(opt.num_threads)
         for (int q = 0; q < inch; q++)
         {
+//            printf("_________q=%d   tid=%lu,cpu=%d\n", q, pthread_self(), sched_getcpu());
             const Mat img0 = bottom_blob_bordered.channel(q);
             Mat img0_tm = bottom_blob_tm.channel(q);
 

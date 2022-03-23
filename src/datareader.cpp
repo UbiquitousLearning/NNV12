@@ -15,6 +15,7 @@
 #include "datareader.h"
 
 #include <string.h>
+#include <sys/time.h>
 
 namespace ncnn {
 
@@ -76,9 +77,29 @@ int DataReaderFromStdio::scan(const char* format, void* p) const
 }
 #endif // NCNN_STRING
 
+size_t DataReaderFromStdio_size=0;
 size_t DataReaderFromStdio::read(void* buf, size_t size) const
 {
-    return fread(buf, 1, size, d->fp);
+//    static pthread_mutex_t read_mutex = PTHREAD_MUTEX_INITIALIZER;/*初始化互斥锁*/
+//    static size_t global_size=0;
+//            struct timeval tv;
+//            gettimeofday(&tv, NULL);
+//            double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+
+////    pthread_mutex_lock(&read_mutex);
+//    fseek(d->fp, global_size, SEEK_SET);
+    size_t sizep= fread(buf, 1, size, d->fp);
+//            struct timeval tve;
+//            gettimeofday(&tve, NULL);
+//            double end = tve.tv_sec * 1000.0 + tve.tv_usec / 1000.0;
+//            printf("%f\n", end-start);
+//    global_size+=size;
+    DataReaderFromStdio_size+=size;
+//    printf("read %zu %zu \n", size, global_size);
+
+//    pthread_mutex_unlock(&read_mutex);
+    return sizep;
+//    return fread(buf, 1, size, d->fp);
 }
 #endif // NCNN_STDIO
 

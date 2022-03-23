@@ -28,6 +28,7 @@
 
 namespace ncnn {
 
+extern size_t DataReaderFromStdio_size;
 // data read wrapper
 class NCNN_EXPORT DataReader
 {

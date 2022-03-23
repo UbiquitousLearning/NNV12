@@ -22,6 +22,7 @@
 #include "layer_type.h"
 
 #include <math.h>
+#include <sys/time.h>
 
 #if NCNN_VULKAN
 #if NCNN_PLATFORM_API
@@ -316,7 +317,14 @@ void Mat::create(int _w, int _h, size_t _elemsize, int _elempack, Allocator* _al
         *refcount = 1;
     }
 }
+double malloc_time = 0;
+double get_ct()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
 
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
 void Mat::create(int _w, int _h, int _c, size_t _elemsize, int _elempack, Allocator* _allocator)
 {
     if (dims == 3 && w == _w && h == _h && c == _c && elemsize == _elemsize && elempack == _elempack && allocator == _allocator)
@@ -335,6 +343,7 @@ void Mat::create(int _w, int _h, int _c, size_t _elemsize, int _elempack, Alloca
 
     cstep = alignSize((size_t)w * h * elemsize, 16) / elemsize;
 
+    double s = get_ct();
     if (total() > 0)
     {
         size_t totalsize = alignSize(total() * elemsize, 4);
@@ -345,6 +354,8 @@ void Mat::create(int _w, int _h, int _c, size_t _elemsize, int _elempack, Alloca
         refcount = (int*)(((unsigned char*)data) + totalsize);
         *refcount = 1;
     }
+    double e = get_ct();
+    malloc_time += (e-s);
 }
 
 void Mat::create_like(const Mat& m, Allocator* _allocator)

@@ -12,6 +12,8 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
+#include <sys/time.h>
+#include <unistd.h>
 static void conv7x7s2_pack1to4_neon(const Mat& bottom_blob, Mat& top_blob, const Mat& kernel, const Mat& _bias, const Option& opt)
 {
     int w = bottom_blob.w;
@@ -33,6 +35,21 @@ static void conv7x7s2_pack1to4_neon(const Mat& bottom_blob, Mat& top_blob, const
     #pragma omp parallel for num_threads(opt.num_threads)
     for (int p = 0; p < outch; p++)
     {
+//        cpu_set_t mask;  //CPU核的集合
+//        CPU_ZERO(&mask);    //置空
+//        CPU_SET(4,&mask);   //设置亲和力值
+//        CPU_SET(5,&mask);   //设置亲和力值
+//        CPU_SET(6,&mask);   //设置亲和力值
+//        CPU_SET(7,&mask);   //设置亲和力值
+//        if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
+//        {
+//            printf("warning: could not set CPU affinity, continuing...\n");
+//        }
+
+//        struct timeval tv121;
+//        gettimeofday(&tv121, NULL);
+//        double startall = tv121.tv_sec * 1000.0 + tv121.tv_usec / 1000.0;
+
 //        printf("p=%d, tid=%d,cpu=%d\n", p, pthread_self(), sched_getcpu());
         Mat out0 = top_blob.channel(p);
 

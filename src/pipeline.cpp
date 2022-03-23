@@ -24,8 +24,11 @@
 #if __ANDROID_API__ >= 26
 #include <android/hardware_buffer.h>
 #endif // __ANDROID_API__ >= 26
-
+int TEST_ = 0;
 namespace ncnn {
+
+std::vector<std::vector<uint32_t>> spriv_vectors;
+std::map <int, std::vector<uint32_t>> spriv_map;
 
 #if NCNN_VULKAN
 class PipelinePrivate
@@ -137,9 +140,24 @@ int Pipeline::create(int shader_type_index, const Option& opt, const std::vector
     const PipelineCache* pipeline_cache = opt.pipeline_cache ? opt.pipeline_cache : vkdev->get_pipeline_cache();
 
     // get from pipeline cache
-    return pipeline_cache->get_pipeline(shader_type_index, opt, specializations, d->local_size_x, d->local_size_y, d->local_size_z,
-                                        &d->shader_module, &d->descriptorset_layout, &d->pipeline_layout, &d->pipeline, &d->descriptor_update_template,
-                                        d->shader_info);
+//        return pipeline_cache->get_pipeline(shader_type_index, opt, specializations, d->local_size_x, d->local_size_y, d->local_size_z,
+//                                            &d->shader_module, &d->descriptorset_layout, &d->pipeline_layout, &d->pipeline, &d->descriptor_update_template,
+//                                            d->shader_info);
+
+
+    if (TEST_)
+    {
+//        printf("----------------------------------save spriv\n");
+        return pipeline_cache->get_pipeline_to_map(spriv_map, shader_type_index, opt, specializations, d->local_size_x, d->local_size_y, d->local_size_z,
+                                                   &d->shader_module, &d->descriptorset_layout, &d->pipeline_layout, &d->pipeline, &d->descriptor_update_template,
+                                                   d->shader_info);
+    }
+    else
+    {
+        return pipeline_cache->get_pipeline_from_map(spriv_map, shader_type_index, opt, specializations, d->local_size_x, d->local_size_y, d->local_size_z,
+                                                     &d->shader_module, &d->descriptorset_layout, &d->pipeline_layout, &d->pipeline, &d->descriptor_update_template,
+                                                     d->shader_info);
+    }
 }
 
 VkShaderModule Pipeline::shader_module() const

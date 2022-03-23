@@ -16,6 +16,8 @@
 
 #include "layer_type.h"
 
+#include "arm/file_arm.h"
+
 namespace ncnn {
 
 Convolution::Convolution()
@@ -60,9 +62,15 @@ int Convolution::load_param(const ParamDict& pd)
 
 int Convolution::load_model(const ModelBin& mb)
 {
-    weight_data = mb.load(weight_data_size, 0);
-    if (weight_data.empty())
-        return -100;
+//    if(load_weight_flag)
+//    {
+        weight_data = mb.load(weight_data_size, 0);
+        if (weight_data.empty())
+            return -100;
+//    }
+//    else{;
+//    }
+
 
     if (bias_term)
     {

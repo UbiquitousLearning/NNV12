@@ -119,7 +119,7 @@ int Packing_arm::forward(const Mat& bottom_blob, Mat& top_blob, const Option& op
 
         if (pack1to4)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < outh; i++)
             {
                 const float* r0 = bottom_blob.row(i * 4);
@@ -160,7 +160,7 @@ int Packing_arm::forward(const Mat& bottom_blob, Mat& top_blob, const Option& op
         }
         if (pack4to1)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < h; i++)
             {
                 const float* r0 = bottom_blob.row(i);
@@ -214,7 +214,7 @@ int Packing_arm::forward(const Mat& bottom_blob, Mat& top_blob, const Option& op
 
         if (pack1to4)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < outc; q++)
             {
                 const float* r0 = bottom_blob.channel(q * 4);
@@ -255,7 +255,7 @@ int Packing_arm::forward(const Mat& bottom_blob, Mat& top_blob, const Option& op
         }
         if (pack4to1)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < channels; q++)
             {
                 const float* r0 = bottom_blob.channel(q);
@@ -374,7 +374,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
 
         if (pack1to4)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < outh; i++)
             {
                 const unsigned short* r0 = bottom_blob.row<const unsigned short>(i * 4);
@@ -415,7 +415,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack4to1)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < h; i++)
             {
                 const unsigned short* r0 = bottom_blob.row<const unsigned short>(i);
@@ -455,7 +455,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack1to8)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < outh; i++)
             {
                 const unsigned short* r0 = bottom_blob.row<const unsigned short>(i * 8);
@@ -582,7 +582,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack8to1)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < h; i++)
             {
                 const unsigned short* r0 = bottom_blob.row<const unsigned short>(i);
@@ -709,7 +709,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack4to8)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < outh; i++)
             {
                 const unsigned short* r0 = bottom_blob.row<const unsigned short>(i * 2);
@@ -774,7 +774,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack8to4)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < h; i++)
             {
                 const unsigned short* r0 = bottom_blob.row<const unsigned short>(i);
@@ -853,7 +853,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
 
         if (pack1to4)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < outc; q++)
             {
                 const unsigned short* r0 = bottom_blob.channel(q * 4);
@@ -894,7 +894,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack4to1)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < channels; q++)
             {
                 const unsigned short* r0 = bottom_blob.channel(q);
@@ -934,7 +934,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack1to8)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < outc; q++)
             {
                 const unsigned short* r0 = bottom_blob.channel(q * 8);
@@ -1061,7 +1061,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack8to1)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < channels; q++)
             {
                 const unsigned short* r0 = bottom_blob.channel(q);
@@ -1188,7 +1188,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack4to8)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < outc; q++)
             {
                 const unsigned short* r0 = bottom_blob.channel(q * 2);
@@ -1253,7 +1253,7 @@ int Packing_arm::forward_bf16s_fp16s(const Mat& bottom_blob, Mat& top_blob, cons
         }
         if (pack8to4)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < channels; q++)
             {
                 const unsigned short* r0 = bottom_blob.channel(q);
@@ -1393,7 +1393,7 @@ int Packing_arm::forward_int8(const Mat& bottom_blob, Mat& top_blob, const Optio
 
         if (pack1to8)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < outh; i++)
             {
                 const signed char* r0 = bottom_blob.row<const signed char>(i * 8);
@@ -1425,7 +1425,7 @@ int Packing_arm::forward_int8(const Mat& bottom_blob, Mat& top_blob, const Optio
         }
         if (pack8to1)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int i = 0; i < h; i++)
             {
                 const signed char* r0 = bottom_blob.row<const signed char>(i);
@@ -1471,7 +1471,7 @@ int Packing_arm::forward_int8(const Mat& bottom_blob, Mat& top_blob, const Optio
 
         if (pack1to8)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < outc; q++)
             {
                 const signed char* r0 = bottom_blob.channel(q * 8);
@@ -1503,7 +1503,7 @@ int Packing_arm::forward_int8(const Mat& bottom_blob, Mat& top_blob, const Optio
         }
         if (pack8to1)
         {
-            #pragma omp parallel for num_threads(opt.num_threads)
+//            #pragma omp parallel for num_threads(opt.num_threads)
             for (int q = 0; q < channels; q++)
             {
                 const signed char* r0 = bottom_blob.channel(q);

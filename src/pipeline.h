@@ -15,6 +15,7 @@
 #ifndef NCNN_PIPELINE_H
 #define NCNN_PIPELINE_H
 
+#include <map>
 #include "mat.h"
 #include "platform.h"
 #if NCNN_VULKAN
@@ -23,8 +24,11 @@
 #include <vulkan/vulkan.h>
 #endif // NCNN_VULKAN
 
+extern int TEST_;
 namespace ncnn {
 
+extern std::vector<std::vector<uint32_t>> spriv_vectors;
+extern std::map <int, std::vector<uint32_t>> spriv_map;
 #if NCNN_VULKAN
 class Option;
 class PipelinePrivate;

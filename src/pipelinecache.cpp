@@ -12,6 +12,7 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
+#include <csignal>
 #include "pipelinecache.h"
 
 #include "gpu.h"
@@ -314,6 +315,7 @@ int PipelineCache::get_pipeline(const uint32_t* spv_data, size_t spv_data_size, 
     return 0;
 }
 
+//double pipt = 0;
 int PipelineCache::get_pipeline(int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
                                 uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
                                 VkShaderModule* _shader_module,
@@ -323,6 +325,9 @@ int PipelineCache::get_pipeline(int shader_type_index, const Option& opt, const 
                                 VkDescriptorUpdateTemplateKHR* descriptor_update_template,
                                 ShaderInfo& shader_info) const
 {
+//            struct timeval tv1;
+//            gettimeofday(&tv1, NULL);
+//            double start = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
     MutexLockGuard lock(d->cache_lock);
 
     PipelineCachePrivate::pipeline_cache_digest key(shader_type_index, opt, specializations, local_size_x, local_size_y, local_size_z);
@@ -386,6 +391,12 @@ int PipelineCache::get_pipeline(int shader_type_index, const Option& opt, const 
         d->cache_digests.push_back(key);
         d->cache_artifacts.push_back(cc);
     }
+
+//    struct timeval tv2;
+//    gettimeofday(&tv2, NULL);
+//    double end = tv2.tv_sec * 1000.0 + tv2.tv_usec / 1000.0;
+//    pipt += end - start;
+//    printf("pipeline      %f %f \n", end - start, pipt);
 
     // NCNN_LOGE("new_pipeline %d", last_digest_index);
 
@@ -498,6 +509,467 @@ ERROR_PipelineCache:
     }
 
     return -1;
+}
+int PipelineCache::create_shader_module_to_vectors(std::vector<std::vector<uint32_t>>& spriv_vectors, int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z, VkShaderModule* _shader_module, ShaderInfo& si) const
+{
+    std::vector<uint32_t> spirv;
+    int retc = compile_spirv_module(shader_type_index, opt, spirv);
+    spriv_vectors.push_back(spirv);
+    if (retc != 0)
+    {
+        NCNN_LOGE("compile_spirv_module failed %d", retc);
+        return -1;
+    }
+
+    const uint32_t* spv_data = spirv.data();
+    size_t spv_data_size = spirv.size() * 4;
+
+    int ret = resolve_shader_info(spv_data, spv_data_size, si);
+    if (ret != 0)
+    {
+        NCNN_LOGE("resolve_shader_info failed %d", ret);
+        return -1;
+    }
+
+    VkShaderModule shader_module = vkdev->compile_shader_module(spv_data, spv_data_size, local_size_x, local_size_y, local_size_z);
+
+    if (!shader_module)
+    {
+        NCNN_LOGE("create_shader_module_to_file failed");
+        return -1;
+    }
+
+    *_shader_module = shader_module;
+
+    return 0;
+}
+int PipelineCache::create_shader_module_from_vectors(std::vector<std::vector<uint32_t> >& spriv_vectors, int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z, VkShaderModule* _shader_module, ShaderInfo& si) const
+{
+    std::vector<uint32_t> spirv;
+    spirv = spriv_vectors[0];
+    //    int retc = compile_spirv_module(shader_type_index, opt, spirv);
+    //删除v第一个元素
+    std::vector<std::vector<uint32_t>>::iterator k = spriv_vectors.begin();
+    spriv_vectors.erase(k);
+    //    if (retc != 0)
+    //    {
+    //        NCNN_LOGE("compile_spirv_module failed %d", retc);
+    //        return -1;
+    //    }
+
+    const uint32_t* spv_data = spirv.data();
+    size_t spv_data_size = spirv.size() * 4;
+
+    int ret = resolve_shader_info(spv_data, spv_data_size, si);
+    if (ret != 0)
+    {
+        NCNN_LOGE("resolve_shader_info failed %d", ret);
+        return -1;
+    }
+
+    VkShaderModule shader_module = vkdev->compile_shader_module(spv_data, spv_data_size, local_size_x, local_size_y, local_size_z);
+
+    if (!shader_module)
+    {
+        NCNN_LOGE("create_shader_module_to_file failed");
+        return -1;
+    }
+
+    *_shader_module = shader_module;
+
+    return 0;
+}
+int PipelineCache::get_pipeline_from_vectors(std::vector<std::vector<uint32_t>>& spriv_vectors, int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
+                                           uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                           VkShaderModule* _shader_module,
+                                           VkDescriptorSetLayout* descriptorset_layout,
+                                           VkPipelineLayout* pipeline_layout,
+                                           VkPipeline* pipeline,
+                                           VkDescriptorUpdateTemplateKHR* descriptor_update_template,
+                                           ShaderInfo& shader_info) const
+{
+    MutexLockGuard lock(d->cache_lock);
+
+    PipelineCachePrivate::pipeline_cache_digest key(shader_type_index, opt, specializations, local_size_x, local_size_y, local_size_z);
+
+    if (!vkdev->info.bug_corrupted_online_pipeline_cache())
+    {
+        // find cache
+        for (size_t i = 0; i < d->cache_digests.size(); i++)
+        {
+            if (d->cache_digests[i] != key)
+                continue;
+
+            // hit cache
+            const PipelineCachePrivate::pipeline_cache_artifact& cc = d->cache_artifacts[i];
+
+            *_shader_module = cc.shader_module;
+            *descriptorset_layout = cc.descriptorset_layout;
+            *pipeline_layout = cc.pipeline_layout;
+            *pipeline = cc.pipeline;
+            *descriptor_update_template = cc.descriptor_update_template;
+            shader_info = cc.shader_info;
+
+            // NCNN_LOGE("get_pipeline hit %d", last_digest_index);
+
+            return 0;
+        }
+    }
+
+    int ret = 0;
+
+    // create new pipeline
+    VkShaderModule shader_module = 0;
+    ret = create_shader_module_from_vectors(spriv_vectors, shader_type_index, opt, local_size_x, local_size_y, local_size_z, &shader_module, shader_info);
+    if (ret != 0)
+    {
+        NCNN_LOGE("create_shader_module failed");
+        return -1;
+    }
+
+    ret = new_pipeline(shader_module, shader_info, specializations, descriptorset_layout, pipeline_layout, pipeline, descriptor_update_template);
+    if (ret != 0)
+    {
+        NCNN_LOGE("new_pipeline failed");
+        vkDestroyShaderModule(vkdev->vkdevice(), shader_module, 0);
+        return -1;
+    }
+
+    *_shader_module = shader_module;
+
+    // save to cache
+    {
+        PipelineCachePrivate::pipeline_cache_artifact cc;
+
+        cc.shader_module = *_shader_module;
+        cc.descriptorset_layout = *descriptorset_layout;
+        cc.pipeline_layout = *pipeline_layout;
+        cc.pipeline = *pipeline;
+        cc.descriptor_update_template = *descriptor_update_template;
+        cc.shader_info = shader_info;
+
+        d->cache_digests.push_back(key);
+        d->cache_artifacts.push_back(cc);
+    }
+    return 0;
+}
+int PipelineCache::get_pipeline_to_vectors(std::vector<std::vector<uint32_t>>& spriv_vectors, int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
+                                           uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                           VkShaderModule* _shader_module,
+                                           VkDescriptorSetLayout* descriptorset_layout,
+                                           VkPipelineLayout* pipeline_layout,
+                                           VkPipeline* pipeline,
+                                           VkDescriptorUpdateTemplateKHR* descriptor_update_template,
+                                           ShaderInfo& shader_info) const
+{
+    MutexLockGuard lock(d->cache_lock);
+
+    PipelineCachePrivate::pipeline_cache_digest key(shader_type_index, opt, specializations, local_size_x, local_size_y, local_size_z);
+
+    if (!vkdev->info.bug_corrupted_online_pipeline_cache())
+    {
+        // find cache
+        for (size_t i = 0; i < d->cache_digests.size(); i++)
+        {
+            if (d->cache_digests[i] != key)
+                continue;
+
+            // hit cache
+            const PipelineCachePrivate::pipeline_cache_artifact& cc = d->cache_artifacts[i];
+
+            *_shader_module = cc.shader_module;
+            *descriptorset_layout = cc.descriptorset_layout;
+            *pipeline_layout = cc.pipeline_layout;
+            *pipeline = cc.pipeline;
+            *descriptor_update_template = cc.descriptor_update_template;
+            shader_info = cc.shader_info;
+
+            // NCNN_LOGE("get_pipeline hit %d", last_digest_index);
+
+            return 0;
+        }
+    }
+
+    int ret = 0;
+
+    // create new pipeline
+    VkShaderModule shader_module = 0;
+    ret = create_shader_module_to_vectors(spriv_vectors, shader_type_index, opt, local_size_x, local_size_y, local_size_z, &shader_module, shader_info);
+    if (ret != 0)
+    {
+        NCNN_LOGE("create_shader_module failed");
+        return -1;
+    }
+
+    ret = new_pipeline(shader_module, shader_info, specializations, descriptorset_layout, pipeline_layout, pipeline, descriptor_update_template);
+    if (ret != 0)
+    {
+        NCNN_LOGE("new_pipeline failed");
+        vkDestroyShaderModule(vkdev->vkdevice(), shader_module, 0);
+        return -1;
+    }
+
+    *_shader_module = shader_module;
+
+    // save to cache
+    {
+        PipelineCachePrivate::pipeline_cache_artifact cc;
+
+        cc.shader_module = *_shader_module;
+        cc.descriptorset_layout = *descriptorset_layout;
+        cc.pipeline_layout = *pipeline_layout;
+        cc.pipeline = *pipeline;
+        cc.descriptor_update_template = *descriptor_update_template;
+        cc.shader_info = shader_info;
+
+        d->cache_digests.push_back(key);
+        d->cache_artifacts.push_back(cc);
+    }
+    return 0;
+}
+int PipelineCache::create_shader_module_to_map(std::map<int, std::vector<uint32_t> >& spriv_map, int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z, VkShaderModule* _shader_module, ShaderInfo& si) const
+{
+    std::vector<uint32_t> spirv;
+    int retc = compile_spirv_module(shader_type_index, opt, spirv);
+    //    if(shader_type_index == 167)
+//    {
+//        unsigned long sha=0;
+//        for (uint32_t i:spirv)
+//        {
+//            //            printf("%d  ",i);
+//            sha += i;
+//
+//        }
+//        //        printf("\n");
+//        printf("%d %zu %lu\n", shader_type_index, spirv.size(), sha);
+//    }
+//    spriv_vectors.push_back(spirv);
+    spriv_map.insert(std::pair<int, std::vector<uint32_t>>(shader_type_index, spirv));
+    if (retc != 0)
+    {
+        NCNN_LOGE("compile_spirv_module failed %d", retc);
+        return -1;
+    }
+
+    const uint32_t* spv_data = spirv.data();
+    size_t spv_data_size = spirv.size() * 4;
+
+    int ret = resolve_shader_info(spv_data, spv_data_size, si);
+    if (ret != 0)
+    {
+        NCNN_LOGE("resolve_shader_info failed %d", ret);
+        return -1;
+    }
+
+    VkShaderModule shader_module = vkdev->compile_shader_module(spv_data, spv_data_size, local_size_x, local_size_y, local_size_z);
+
+    if (!shader_module)
+    {
+        NCNN_LOGE("create_shader_module_to_file failed");
+        return -1;
+    }
+
+    *_shader_module = shader_module;
+
+    return 0;
+}
+int PipelineCache::create_shader_module_from_map(std::map<int, std::vector<uint32_t> >& spriv_map, int shader_type_index, const Option& opt, uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z, VkShaderModule* _shader_module, ShaderInfo& si) const
+{
+    std::vector<uint32_t> spirv;
+    spirv = spriv_map[shader_type_index];
+    //    int retc = compile_spirv_module(shader_type_index, opt, spirv);
+
+    const uint32_t* spv_data = spirv.data();
+    size_t spv_data_size = spirv.size() * 4;
+
+    int ret = resolve_shader_info(spv_data, spv_data_size, si);
+    if (ret != 0)
+    {
+        NCNN_LOGE("resolve_shader_info failed %d", ret);
+        return -1;
+    }
+
+    VkShaderModule shader_module = vkdev->compile_shader_module(spv_data, spv_data_size, local_size_x, local_size_y, local_size_z);
+
+    if (!shader_module)
+    {
+        NCNN_LOGE("create_shader_module_to_file failed");
+        return -1;
+    }
+
+    *_shader_module = shader_module;
+
+    return 0;
+}
+int PipelineCache::get_pipeline_to_map(std::map <int, std::vector<uint32_t>>& spriv_map, int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
+                                           uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                           VkShaderModule* _shader_module,
+                                           VkDescriptorSetLayout* descriptorset_layout,
+                                           VkPipelineLayout* pipeline_layout,
+                                           VkPipeline* pipeline,
+                                           VkDescriptorUpdateTemplateKHR* descriptor_update_template,
+                                           ShaderInfo& shader_info) const
+{
+    MutexLockGuard lock(d->cache_lock);
+
+    PipelineCachePrivate::pipeline_cache_digest key(shader_type_index, opt, specializations, local_size_x, local_size_y, local_size_z);
+
+    if (!vkdev->info.bug_corrupted_online_pipeline_cache())
+    {
+        // find cache
+        for (size_t i = 0; i < d->cache_digests.size(); i++)
+        {
+            if (d->cache_digests[i] != key)
+                continue;
+
+            // hit cache
+            const PipelineCachePrivate::pipeline_cache_artifact& cc = d->cache_artifacts[i];
+
+            *_shader_module = cc.shader_module;
+            *descriptorset_layout = cc.descriptorset_layout;
+            *pipeline_layout = cc.pipeline_layout;
+            *pipeline = cc.pipeline;
+            *descriptor_update_template = cc.descriptor_update_template;
+            shader_info = cc.shader_info;
+
+            // NCNN_LOGE("get_pipeline hit %d", last_digest_index);
+
+            return 0;
+        }
+    }
+
+    int ret = 0;
+
+    // create new pipeline
+    VkShaderModule shader_module = 0;
+    ret = create_shader_module_to_map(spriv_map, shader_type_index, opt, local_size_x, local_size_y, local_size_z, &shader_module, shader_info);
+    if (ret != 0)
+    {
+        NCNN_LOGE("create_shader_module failed");
+        return -1;
+    }
+
+    ret = new_pipeline(shader_module, shader_info, specializations, descriptorset_layout, pipeline_layout, pipeline, descriptor_update_template);
+    if (ret != 0)
+    {
+        NCNN_LOGE("new_pipeline failed");
+        vkDestroyShaderModule(vkdev->vkdevice(), shader_module, 0);
+        return -1;
+    }
+
+    *_shader_module = shader_module;
+
+    // save to cache
+    {
+        PipelineCachePrivate::pipeline_cache_artifact cc;
+
+        cc.shader_module = *_shader_module;
+        cc.descriptorset_layout = *descriptorset_layout;
+        cc.pipeline_layout = *pipeline_layout;
+        cc.pipeline = *pipeline;
+        cc.descriptor_update_template = *descriptor_update_template;
+        cc.shader_info = shader_info;
+
+        d->cache_digests.push_back(key);
+        d->cache_artifacts.push_back(cc);
+    }
+    return 0;
+}
+int PipelineCache::get_pipeline_from_map(std::map <int, std::vector<uint32_t>>& spriv_map, int shader_type_index, const Option& opt, const std::vector<vk_specialization_type>& specializations,
+                                       uint32_t local_size_x, uint32_t local_size_y, uint32_t local_size_z,
+                                       VkShaderModule* _shader_module,
+                                       VkDescriptorSetLayout* descriptorset_layout,
+                                       VkPipelineLayout* pipeline_layout,
+                                       VkPipeline* pipeline,
+                                       VkDescriptorUpdateTemplateKHR* descriptor_update_template,
+                                       ShaderInfo& shader_info) const
+{
+//static double t = 0;
+//    double ss = ncnn::get_current_time();
+    MutexLockGuard lock(d->cache_lock);
+//    d->cache_lock.lock();
+//    double se = ncnn::get_current_time();
+//    t +=(se-ss);
+//    printf("%d, %f,%f\n", shader_type_index,se-ss, t);
+    PipelineCachePrivate::pipeline_cache_digest key(shader_type_index, opt, specializations, local_size_x, local_size_y, local_size_z);
+
+    if (!vkdev->info.bug_corrupted_online_pipeline_cache())
+    {
+        // find cache
+        for (size_t i = 0; i < d->cache_digests.size(); i++)
+        {
+            if (d->cache_digests[i] != key)
+                continue;
+
+            // hit cache
+            const PipelineCachePrivate::pipeline_cache_artifact& cc = d->cache_artifacts[i];
+
+            *_shader_module = cc.shader_module;
+            *descriptorset_layout = cc.descriptorset_layout;
+            *pipeline_layout = cc.pipeline_layout;
+            *pipeline = cc.pipeline;
+            *descriptor_update_template = cc.descriptor_update_template;
+            shader_info = cc.shader_info;
+
+            // NCNN_LOGE("get_pipeline hit %d", last_digest_index);
+//            double ee = ncnn::get_current_time();
+
+//            printf("%d, %f\n", shader_type_index, ee-ss);
+
+//            d->cache_lock.unlock();
+            return 0;
+        }
+    }
+//    double s = ncnn::get_current_time();
+
+    int ret = 0;
+
+    // create new pipeline
+    VkShaderModule shader_module = 0;
+//    double m_s = ncnn::get_current_time();
+    ret = create_shader_module_from_map(spriv_map, shader_type_index, opt, local_size_x, local_size_y, local_size_z, &shader_module, shader_info);
+//    double m_e = ncnn::get_current_time();
+
+//    d->cache_lock.unlock();
+    if (ret != 0)
+    {
+        NCNN_LOGE("create_shader_module failed");
+        return -1;
+    }
+
+//    d->cache_lock.lock();
+//    double pip_s = ncnn::get_current_time();
+    ret = new_pipeline(shader_module, shader_info, specializations, descriptorset_layout, pipeline_layout, pipeline, descriptor_update_template);
+//    double pip_e = ncnn::get_current_time();
+//    d->cache_lock.unlock();
+    if (ret != 0)
+    {
+        NCNN_LOGE("new_pipeline failed");
+        vkDestroyShaderModule(vkdev->vkdevice(), shader_module, 0);
+        return -1;
+    }
+
+    *_shader_module = shader_module;
+
+    // save to cache
+    {
+        PipelineCachePrivate::pipeline_cache_artifact cc;
+
+        cc.shader_module = *_shader_module;
+        cc.descriptorset_layout = *descriptorset_layout;
+        cc.pipeline_layout = *pipeline_layout;
+        cc.pipeline = *pipeline;
+        cc.descriptor_update_template = *descriptor_update_template;
+        cc.shader_info = shader_info;
+
+        d->cache_digests.push_back(key);
+        d->cache_artifacts.push_back(cc);
+    }
+
+//    d->cache_lock.unlock();
+//    double e = ncnn::get_current_time();
+//    printf("%d, %f, %f, %f\n", shader_type_index, e-s, pip_e-pip_s, m_e-m_s);
+    return 0;
 }
 
 #endif // NCNN_VULKAN

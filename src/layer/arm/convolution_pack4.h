@@ -14,6 +14,8 @@
 
 static void convolution_transform_kernel_pack4_neon(const Mat& weight_data, Mat& weight_data_pack4, int num_input, int num_output, int kernel_w, int kernel_h)
 {
+//    printf("4\n");
+//    printf("kernel_w:%d \n", kernel_w);
     const int maxk = kernel_w * kernel_h;
 
     // src = kw-kh-inch-outch
@@ -24,7 +26,21 @@ static void convolution_transform_kernel_pack4_neon(const Mat& weight_data, Mat&
 
     for (int q = 0; q + 3 < num_output; q += 4)
     {
-//        printf("q=%d, tid=%ld,cpu=%d\n", q, pthread_self(), sched_getcpu());
+//    #pragma omp parallel for num_threads(2)
+//    for (int q = 0; q < num_output-3; q += 4)
+//    {
+//        cpu_set_t mask;  //CPU核的集合
+//        CPU_ZERO(&mask);    //置空
+//        CPU_SET(0,&mask);   //设置亲和力值
+//        CPU_SET(1,&mask);   //设置亲和力值
+//        CPU_SET(2,&mask);   //设置亲和力值
+//        CPU_SET(3,&mask);   //设置亲和力值
+//        if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
+//        {
+//            printf("warning: could not set CPU affinity, continuing...\n");
+//        }
+
+//        printf("      kernel_w:%d  q=%d, tid=%ld,cpu=%d\n", kernel_w, q, pthread_self(), sched_getcpu());
         const Mat k0 = weight_data_r2.channel(q);
         const Mat k1 = weight_data_r2.channel(q + 1);
         const Mat k2 = weight_data_r2.channel(q + 2);
@@ -86,6 +102,9 @@ static void convolution_transform_kernel_pack4_neon(const Mat& weight_data, Mat&
 
 static void convolution_pack4_neon(const Mat& bottom_blob, Mat& top_blob, const Mat& weight_data_pack4, const Mat& bias_data, int kernel_w, int kernel_h, int dilation_w, int dilation_h, int stride_w, int stride_h, int activation_type, const Mat& activation_params, const Option& opt)
 {
+//    struct timeval tv;
+//    gettimeofday(&tv, NULL);
+//    double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
     int w = bottom_blob.w;
     int channels = bottom_blob.c;
 
@@ -116,10 +135,14 @@ static void convolution_pack4_neon(const Mat& bottom_blob, Mat& top_blob, const 
 
     const float* bias_data_ptr = bias_data;
 
+
+//        struct timeval tv;
+//        gettimeofday(&tv, NULL);
+//        double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+
     #pragma omp parallel for num_threads(opt.num_threads)
     for (int p = 0; p < outch; p++)
     {
-//        printf("p=%d, tid=%ld,cpu=%d\n", p, pthread_self(), sched_getcpu());
         float* outptr = top_blob.channel(p);
 
         for (int i = 0; i < outh; i++)
@@ -174,4 +197,13 @@ static void convolution_pack4_neon(const Mat& bottom_blob, Mat& top_blob, const 
             outptr += outw * 4;
         }
     }
+
+
+//        struct timeval tv1;
+//        gettimeofday(&tv1, NULL);
+//        double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
+//    if(bottom_blob.w == 32 && kernel_w==5&&top_blob.w==28)
+//    {
+//        printf("32 5 28-------------%f,cpu=%d\n", end-start, sched_getcpu());
+//    }
 }

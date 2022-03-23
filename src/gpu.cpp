@@ -19,6 +19,8 @@
 #include <math.h>
 #include <string.h>
 #include <vulkan/vulkan.h>
+#include <csignal>
+#include <fstream>
 
 #include "glslang/SPIRV/GlslangToSpv.h"
 #include "glslang/glslang/Public/ShaderLang.h"
@@ -830,9 +832,16 @@ static int find_default_vulkan_device_index()
     NCNN_LOGE("no vulkan device");
     return -1;
 }
+double tt(){
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
 
 int create_gpu_instance()
 {
+    double c = tt();
     MutexLockGuard lock(g_instance_lock);
 
     if ((VkInstance)g_instance != 0)
@@ -883,6 +892,7 @@ int create_gpu_instance()
 
     std::vector<const char*> enabledExtensions;
 
+    double s0 = tt();
     uint32_t instanceExtensionPropertyCount;
     ret = vkEnumerateInstanceExtensionProperties(NULL, &instanceExtensionPropertyCount, NULL);
     if (ret != VK_SUCCESS)
@@ -890,7 +900,10 @@ int create_gpu_instance()
         NCNN_LOGE("vkEnumerateInstanceExtensionProperties failed %d", ret);
         return -1;
     }
+    double e0 = tt();
+    printf("vkEnumerateInstanceExtensionProperties 1st %f %d\n", e0-s0, instanceExtensionPropertyCount);
 
+    double s01 = tt();
     std::vector<VkExtensionProperties> instanceExtensionProperties(instanceExtensionPropertyCount);
     ret = vkEnumerateInstanceExtensionProperties(NULL, &instanceExtensionPropertyCount, instanceExtensionProperties.data());
     if (ret != VK_SUCCESS)
@@ -898,6 +911,8 @@ int create_gpu_instance()
         NCNN_LOGE("vkEnumerateInstanceExtensionProperties failed %d", ret);
         return -1;
     }
+    double e01 = tt();
+    printf("vkEnumerateInstanceExtensionProperties 2rd %f %d\n", e01-s01, instanceExtensionPropertyCount);
 
     support_VK_KHR_get_physical_device_properties2 = 0;
     support_VK_KHR_get_surface_capabilities2 = 0;
@@ -978,6 +993,17 @@ int create_gpu_instance()
     instanceCreateInfo.enabledExtensionCount = enabledExtensions.size();
     instanceCreateInfo.ppEnabledExtensionNames = enabledExtensions.data();
 
+
+//    std::ofstream osData("tmp.t.bin", std::ios_base::out | std::ios_base::binary);
+//    osData.write(reinterpret_cast<char *>(&instanceCreateInfo), sizeof(instanceCreateInfo));
+//    osData.close();
+//    printf("save\n");
+//    VkInstanceCreateInfo instanceCreateInfo_;
+//    std::ifstream isData("tmp.t.bin", std::ios_base::in | std::ios_base::binary);
+//    isData.read(reinterpret_cast<char*>(&instanceCreateInfo_), sizeof(instanceCreateInfo_));
+//    printf("read\n");
+
+    double s = tt();
     VkInstance instance = 0;
     ret = vkCreateInstance(&instanceCreateInfo, 0, &instance);
     if (ret != VK_SUCCESS)
@@ -985,6 +1011,8 @@ int create_gpu_instance()
         NCNN_LOGE("vkCreateInstance failed %d", ret);
         return -1;
     }
+    double e = tt();
+    printf("vkCreateInstance %f\n", e-s);
 
     g_instance.instance = instance;
 
@@ -1974,7 +2002,10 @@ VulkanDevice::VulkanDevice(int device_index)
     deviceCreateInfo.ppEnabledExtensionNames = enabledExtensions.data();
     deviceCreateInfo.pEnabledFeatures = 0; // VkPhysicalDeviceFeatures pointer
 
+    double s = tt();
     VkResult ret = vkCreateDevice(info.physical_device(), &deviceCreateInfo, 0, &d->device);
+    double e = tt();
+    printf("vkCreateDevice %f\n", e-s);
     if (ret != VK_SUCCESS)
     {
         NCNN_LOGE("vkCreateDevice failed %d", ret);
@@ -3025,15 +3056,20 @@ int VulkanDevice::init_device_extension()
 
 VulkanDevice* get_gpu_device(int device_index)
 {
+    double s = tt();
     try_create_gpu_instance();
+    double e = tt();
 
     if (device_index < 0 || device_index >= g_gpu_count)
         return 0;
 
     MutexLockGuard lock(g_default_vkdev_lock);
 
+    double ss = tt();
     if (!g_default_vkdev[device_index])
         g_default_vkdev[device_index] = new VulkanDevice(device_index);
+    double ee = tt();
+    printf("%f  %f\n", e-s, ee-ss);
 
     return g_default_vkdev[device_index];
 }

@@ -64,6 +64,10 @@ static inline size_t alignSize(size_t sz, int n)
 
 static inline void* fastMalloc(size_t size)
 {
+//    static size_t global_size = 0;
+//    global_size += size;
+//    printf("%zu\n", global_size);
+
 #if _MSC_VER
     return _aligned_malloc(size, MALLOC_ALIGN);
 #elif (defined(__unix__) || defined(__APPLE__)) && _POSIX_C_SOURCE >= 200112L || (__ANDROID__ && __ANDROID_API__ >= 17)
