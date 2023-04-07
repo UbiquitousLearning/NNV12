@@ -899,7 +899,7 @@ int Convolution_arm::create_pipeline(const Option& opt)
         }
 
         //    printf("%d %d %d %d %d %d\n", weight_data.empty(),weight_data_pack4.empty(), weight_data_pack1to4.empty(), weight_data_pack4to1.empty(), weight_3x3_winograd42_data_pack4.empty(), weight_sgemm_data_pack4.empty());
-        if (ARM_W_TEST)
+        if (USE_PACK_ARM &&ARM_W_TEST)
         {
             size_t totalsize_wd = alignSize(weight_data.total() * weight_data.elemsize, 4);
             int size_wd = (totalsize_wd + (int)sizeof(*weight_data.refcount)) / sizeof(float);
@@ -1035,7 +1035,7 @@ int Convolution_arm::create_pipeline(const Option& opt)
             }
             arm_weight_file_seek_save += size_save;
             //        vk_weight_seek += size * sizeof(float);
-            //        printf("save %zu\n", vk_weight_seek);
+//            printf("save %zu\n", arm_weight_file_seek_save);
         }
     }
     return 0;

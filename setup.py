@@ -126,7 +126,7 @@ if sys.version_info < (3, 0):
 
 requirements = ["numpy", "tqdm", "requests", "portalocker", "opencv-python"]
 
-with io.open("README.md", encoding="utf-8") as h:
+with io.open("README.ncnn.md", encoding="utf-8") as h:
     long_description = h.read()
 
 setup(

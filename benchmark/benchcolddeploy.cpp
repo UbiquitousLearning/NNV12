@@ -70,9 +70,9 @@
 
 char globalbinpath[256];
 char gloableparampath[256];
-size_t dr_cpu=0;//5;
-size_t pipe_cpu=1;//6;
-size_t infer_cpu=7;//0;
+//size_t dr_cpu=0;//5;
+//size_t pipe_cpu=1;//6;
+//size_t infer_cpu=7;//0;
 
 double start_t = 0;
 
@@ -106,51 +106,179 @@ static ncnn::VkAllocator* g_blob_vkallocator = 0;
 static ncnn::VkAllocator* g_staging_vkallocator = 0;
 #endif // NCNN_VULKAN
 
-double largecore_rc_time=0;
-void inference(const ncnn::Net& net, const ncnn::Mat& in, bool print=true){
-    const std::vector<const char*>& input_names = net.input_names();
-    const std::vector<const char*>& output_names = net.output_names();
+/////////////////////////////////////////////////////////////////////////////
+std::vector<double> rc_times(1000, -1);
+//DataReaderFromEmpty drp;
+//ncnn::ModelBinFromDataReader mb(drp);
 
-    if (g_enable_cooling_down)
-    {
-        // sleep 10 seconds for cooling down SOC  :(
-#ifdef _WIN32
-        Sleep(10 * 1000);
-#elif defined(__unix__) || defined(__APPLE__)
-//    sleep(10);
-#elif _POSIX_TIMERS
-        struct timespec ts;
-        ts.tv_sec = 10;
-        ts.tv_nsec = 0;
-        nanosleep(&ts, &ts);
-#else
-// TODO How to handle it ?
-#endif
+//#define CPU_NUMS 4
+//int CPU_LITTLE_s[CPU_NUMS] = {0, 1, 2, 3};
+int CPU_NUMS;// = 4;
+std::vector<int> CPU_LITTLE_s;// = {0, 1, 2, 3};
+int CPU_BIG_;// = 7;
+//std::vector<int> cpuLittle_Vectors[CPU_NUMS];
+std::vector<std::vector<int>> cpuLittle_Vectors;//(CPU_NUMS);
+std::vector<int> cpuBig_Vector;
+//pthread_cond_t param_cond_cpus[CPU_NUMS];
+std::vector<pthread_cond_t> param_cond_cpus;//(CPU_NUMS);
+//double last_cpu_times[CPU_NUMS];
+std::vector<double> last_cpu_times;//(CPU_NUMS);
+//double cpu_times[CPU_NUMS];
+std::vector<double> cpu_times; //(CPU_NUMS);
+
+void setDeviceConfig(int device_cpus){
+    if(device_cpus == 0){
+        CPU_NUMS= 4;
+        CPU_LITTLE_s.resize(CPU_NUMS);
+        CPU_LITTLE_s = {0, 1, 2, 3};
+        CPU_BIG_ = 7;
+        cpuLittle_Vectors.resize(CPU_NUMS);
+        param_cond_cpus.resize(CPU_NUMS);
+        last_cpu_times.resize(CPU_NUMS);
+        cpu_times.resize(CPU_NUMS);
     }
-
-    ncnn::Mat out;
-
-    //    infer_start = ncnn::get_current_time();
-
-    ncnn::Extractor ex = net.create_extractor();
-    ex.input(input_names[0], in);
-    ex.extract(output_names[0], out);
-
-        float* ptr = (float*)out.data;
-        printf("%f\n", *ptr);
-    if(print)
-    {
-        infer_end = ncnn::get_current_time();
-        infer_time = infer_end - infer_start;
-        printf("for_skp_time=%f for_cal_time=%f\t", for_skp_time, for_cal_time);
-        fprintf(stderr, "infer time =  %7.2f\n", infer_time);
+    else if(device_cpus == 1){
+        CPU_NUMS= 2;
+        CPU_LITTLE_s.resize(CPU_NUMS);
+        CPU_LITTLE_s = {1, 2};
+        CPU_BIG_ = 0;
+        cpuLittle_Vectors.resize(CPU_NUMS);
+        param_cond_cpus.resize(CPU_NUMS);
+        last_cpu_times.resize(CPU_NUMS);
+        cpu_times.resize(CPU_NUMS);
     }
-
-    //    pthread_exit(&t_infer);
-
+    else{
+        CPU_NUMS= 4;
+        CPU_LITTLE_s.resize(CPU_NUMS);
+        CPU_LITTLE_s = {0, 1, 2, 3};
+        CPU_BIG_ = 7;
+        cpuLittle_Vectors.resize(CPU_NUMS);
+        param_cond_cpus.resize(CPU_NUMS);
+        last_cpu_times.resize(CPU_NUMS);
+        cpu_times.resize(CPU_NUMS);
+    }
 }
+
+////////////////////////files//////////////////////////////////
+
+void WriteBinaryFile( const char* comment, bool use_vulkan_compute)
+{
+    char path[256];
+    if(use_vulkan_compute){
+        sprintf(path, MODEL_DIR "%s.vk.dat", comment);
+    }
+    else
+    {
+        sprintf(path, MODEL_DIR "%s.dat", comment);
+    }
+    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+
+    for (int i=0; i<CPU_NUMS; i++)
+    {
+        int n = CPU_NUMS - i - 1;
+        int cpuListSize = cpuLittle_Vectors[n].size();
+        osData.write(reinterpret_cast<char *>(&cpuListSize), sizeof(cpuListSize));
+        osData.write(reinterpret_cast<char *>(cpuLittle_Vectors[n].data()), cpuListSize*sizeof(cpuLittle_Vectors[n].front()) );
+
+    }
+    int cpu7ListSize = cpuBig_Vector.size();
+    osData.write(reinterpret_cast<char *>(&cpu7ListSize), sizeof(cpu7ListSize));
+    osData.write(reinterpret_cast<char *>(cpuBig_Vector.data()), cpu7ListSize*sizeof(cpuBig_Vector.front()) );
+    osData.close();
+    std::cout<<"[WRITE]["<<path<<"]cpuLittle_Vectors"<<std::endl;
+}
+void WriteDataReaderFile( const char* comment)
+{
+    char path[256];
+    sprintf(path, MODEL_DIR "%s.br.dat", comment);
+    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+
+    int DRListSize = DR_file_Vectors.size();
+    std::cout<<"[WRITE]["<<path<<"]DR_file_Vectors(len:"<<DRListSize<<"):{";
+    for(int i : DR_file_Vectors){
+        printf("%d,", i);
+    }
+    std::cout<<"}"<<std::endl;
+
+    osData.write(reinterpret_cast<char *>(&DRListSize), sizeof(DRListSize));
+    osData.write(reinterpret_cast<char *>(DR_file_Vectors.data()), DRListSize*sizeof(DR_file_Vectors.front()) );
+
+    osData.close();
+}
+void WriteSprivMapBinaryFile( const char* comment)
+{
+    char path[256];
+    sprintf(path, MODEL_DIR "%s.m.dat", comment);
+    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+
+    int ssSize = ncnn::spriv_map.size();
+    osData.write(reinterpret_cast<char *>(&ssSize), sizeof(ssSize));
+    std::cout<<"[WRITE]["<<path<<"]spriv_map(map_len:"<<ssSize<<"):{";
+    for(auto &it:ncnn::spriv_map)
+    {
+        auto k = it.first;
+        osData.write(reinterpret_cast<char *>(&k), sizeof(k));
+        auto s = it.second;
+        int sSize = s.size();
+        osData.write(reinterpret_cast<char *>(&sSize), sizeof(sSize));
+        osData.write(reinterpret_cast<char *>(s.data()), sSize*sizeof(s.front()) );
+        std::cout<<it.first<<", ";
+    }
+    std::cout<<"}"<<std::endl;
+    osData.close();
+}
+void ReadBinaryFile( const char* comment, bool use_vulkan_compute)
+{
+    double start = ncnn::get_current_time();
+
+    char path[256];
+    if(use_vulkan_compute){
+        sprintf(path, MODEL_DIR "%s.vk.dat", comment);
+    }
+    else{
+        sprintf(path, MODEL_DIR "%s.dat", comment);
+    }
+    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
+    if (isData)
+    {
+        for (int i=0; i<CPU_NUMS; i++){
+            int n = CPU_NUMS - i-1;
+            int cpu_Vsize;
+            isData.read(reinterpret_cast<char *>(&cpu_Vsize),sizeof(cpu_Vsize));
+            cpuLittle_Vectors[n].resize(cpu_Vsize);
+            isData.read(reinterpret_cast<char *>(cpuLittle_Vectors[n].data()), cpu_Vsize *sizeof(int) );
+
+            printf("%d:{", n);
+            for(int i : cpuLittle_Vectors[n]){
+                printf("%d,", i);
+            }
+            printf("}\n");
+        }
+        int cpu7Vsize;
+        isData.read(reinterpret_cast<char *>(&cpu7Vsize),sizeof(cpu7Vsize));
+        cpuBig_Vector.resize(cpu7Vsize);
+        isData.read(reinterpret_cast<char *>(cpuBig_Vector.data()), cpu7Vsize *sizeof(int) );
+
+        printf("7:{");
+        for(int i : cpuBig_Vector){
+            printf("%d,", i);
+        }
+        printf("}\n");
+    }
+    else
+    {
+        printf("ERROR: Cannot open file ����.dat");
+    }
+    double e = ncnn::get_current_time();
+    printf("rfile_time %f\n", e-start);
+    isData.close();
+}
+
+
+////////////////////////benchmark//////////////////////////////////
 void benchmark(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
 {
+    std::cout<<"[BENCHMARK][START]"<<std::endl;
     ncnn::Mat in = _in;
     in.fill(0.01f);
 
@@ -192,7 +320,9 @@ void benchmark(const char* comment, const ncnn::Mat& _in, const ncnn::Option& op
     net.load_param(parampath);
     double load_param_end = ncnn::get_current_time();
     double load_param_time = load_param_end - load_param_start;
-    arm_weight_file_seek_Vectors.resize(net.layers().size());
+    if(USE_PACK_ARM){
+        arm_weight_file_seek_Vectors.resize(net.layers().size());
+    }
 
     double load_model_start = ncnn::get_current_time();
 
@@ -265,7 +395,7 @@ void benchmark(const char* comment, const ncnn::Mat& _in, const ncnn::Option& op
             ex.input(input_names[0], in);
             ex.extract(output_names[0], out);
             float* ptr = (float*)out.data;
-            printf("out %f\n", *ptr);
+            //            printf("out %f\n", *ptr);
         }
 
         double end = ncnn::get_current_time();
@@ -280,389 +410,59 @@ void benchmark(const char* comment, const ncnn::Mat& _in, const ncnn::Option& op
 
     time_avg /= g_loop_count;
 
-    fprintf(stderr, "%20s  load param = %7.2f  load model = %7.2f  create pipeline = %7.2f  first = %7.2f  min = %7.2f  max = %7.2f  avg = %7.2f\n", comment, load_param_time, load_model_time, load_pipe_time, first_time, time_min, time_max, time_avg);
+    //    fprintf(stderr, "%20s  load param = %7.2f  load model = %7.2f  create pipeline = %7.2f  first = %7.2f  min = %7.2f  max = %7.2f  avg = %7.2f\n", comment, load_param_time, load_model_time, load_pipe_time, first_time, time_min, time_max, time_avg);
+    printf("_____%15s  load param = %7.2f  load model = %7.2f  create pipeline = %7.2f  first = %7.2f  min = %7.2f  max = %7.2f  avg = %7.2f\n", comment, load_param_time, load_model_time, load_pipe_time, first_time, time_min, time_max, time_avg);
+    std::cout<<"[BENCHMARK][FINISH]"<<std::endl;
 }
-void *infer_thread(void *args){
-//   sleep(10);
-//    fprintf(stderr, "start infer\n");
-#ifdef __CPU_MASK__
-    cpu_set_t mask;  //CPU核的集合
-    cpu_set_t get;   //获取在集合中的CPU
-    CPU_ZERO(&mask);    //置空
-    CPU_SET(infer_cpu,&mask);   //设置亲和力值
-    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
-    {
-        printf("warning: could not set CPU affinity, continuing...\n");
-    }
-#endif
 
-
-    auto *net=(ncnn::Net*)args;
-
-    ncnn::Net net_in;
-    net_in.opt = net->opt;
-    char tparampath[256];
-    sprintf(tparampath, MODEL_DIR "mobilenet_v3.param"); //GoogleNet  //AlexNet
-    char tbinpath[256];
-    sprintf(tbinpath, MODEL_DIR "mobilenet_v3.bin");
-    net_in.load_param(tparampath);
-    int open = net_in.load_model_dr(tbinpath);
-    if (open<0)
-    {
-        printf("load file files\n");
-        DataReaderFromEmpty dr;
-        net_in.load_model_dr(dr);
-    }
-    net_in.load_model_pipe();
-    //    printf("load p end %f\n", ncnn::get_current_time()-start_t);
-    for (int i=0; i<10; i++)
-    {
-        ncnn::Mat top;
-        //        conv7x7s2_pack1to4_neon(ncnn::Mat(227, 227, 3), top, ncnn::Mat(7,7, 3), ncnn::Mat(7,7, 3), net->opt);
-        inference(net_in, ncnn::Mat(227, 227, 3), true);
-        //        ncnn::do_forward_layer
-
-        //        printf("infer p end %f\n", ncnn::get_current_time()-start_t);
-    }
-    ncnn::current_layer_idx_f2p = 0;
-    ncnn::current_layer_idx_p2i = 0;
-    infer_start = 0;
-    pipe_start = 0;
+////////////////////////benchmark_biglittle//////////////////////////////////
+double largecore_rc_time=0;
+void inference(const ncnn::Net& net, const ncnn::Mat& in, bool print=true){
     for_cal_time = 0;
-    for_skp_time = 0;
-    read_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
-    create_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
-    infer_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
+    const std::vector<const char*>& input_names = net.input_names();
+    const std::vector<const char*>& output_names = net.output_names();
 
-
-    pthread_mutex_lock(&param_lock);
-    param_finish = 100;
-    param_finish_1 = 100;
-    pthread_mutex_unlock(&param_lock);
-    pthread_cond_signal(&param_cond);
-    pthread_cond_signal(&param_cond_1);
-
-
-    pthread_cond_signal(&param_cond_cpu0);
-    pthread_cond_signal(&param_cond_cpu1);
-    pthread_cond_signal(&param_cond_cpu2);
-    pthread_cond_signal(&param_cond_cpu3);
-
-    printf("param finish_____________\n");
-
-
-    printf("__________inf tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
-    inference(*net, ncnn::Mat(227, 227, 3), true);
-
-    return 0;
-}
-
-void *pipe_infer_thread(void *args){
-//   sleep(10);
-//    fprintf(stderr, "start infer\n");
-#ifdef __CPU_MASK__
-    cpu_set_t mask;  //CPU核的集合
-    cpu_set_t get;   //获取在集合中的CPU
-    CPU_ZERO(&mask);    //置空
-    CPU_SET(infer_cpu,&mask);   //设置亲和力值
-    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
+    if (g_enable_cooling_down)
     {
-        printf("warning: could not set CPU affinity, continuing...\n");
-    }
+        // sleep 10 seconds for cooling down SOC  :(
+#ifdef _WIN32
+        Sleep(10 * 1000);
+#elif defined(__unix__) || defined(__APPLE__)
+//    sleep(10);
+#elif _POSIX_TIMERS
+        struct timespec ts;
+        ts.tv_sec = 10;
+        ts.tv_nsec = 0;
+        nanosleep(&ts, &ts);
+#else
+// TODO How to handle it ?
 #endif
-
-
-    auto *net=(ncnn::Net*)args;
-
-    ncnn::Net net_in;
-    net_in.opt = net->opt;
-    char tparampath[256];
-    sprintf(tparampath, MODEL_DIR "mobilenet_v3.param"); //GoogleNet  //AlexNet
-    char tbinpath[256];
-    sprintf(tbinpath, MODEL_DIR "mobilenet_v3.bin");
-    net_in.load_param(tparampath);
-    int open = net_in.load_model_dr(tbinpath);
-    if (open<0)
-    {
-        printf("load file files\n");
-        DataReaderFromEmpty dr;
-        net_in.load_model_dr(dr);
     }
-    net_in.load_model_pipe();
-    //    printf("load p end %f\n", ncnn::get_current_time()-start_t);
-    for (int i=0; i<10; i++)
+
+    ncnn::Mat out;
+
+    //    infer_start = ncnn::get_current_time();
+
+    ncnn::Extractor ex = net.create_extractor();
+    ex.input(input_names[0], in);
+    ex.extract(output_names[0], out);
+
+    float* ptr = (float*)out.data;
+    infer_end = ncnn::get_current_time();
+    infer_time = for_cal_time;//infer_end - infer_start;
+    if(print)
     {
-        ncnn::Mat top;
-        //        conv7x7s2_pack1to4_neon(ncnn::Mat(227, 227, 3), top, ncnn::Mat(7,7, 3), ncnn::Mat(7,7, 3), net->opt);
-        inference(net_in, ncnn::Mat(227, 227, 3), true);
-        //        ncnn::do_forward_layer
-
-        //        printf("infer p end %f\n", ncnn::get_current_time()-start_t);
+        std::cout<<"_____    out[0] = "<<*ptr<<std::endl;
+        std::cout<<"_____    for_skp_time="<<for_skp_time<<" for_cal_time="<<for_cal_time<<std::endl;
+        //        fprintf(stderr, "infer time =  %7.2f\n", infer_time);
+        std::cout<<"_____    infer time = "<<infer_time<<std::endl;
     }
-    ncnn::current_layer_idx_f2p = 0;
-    ncnn::current_layer_idx_p2i = 0;
-    infer_start = 0;
-    pipe_start = 0;
-    for_cal_time = 0;
-    for_skp_time = 0;
 
+    //    pthread_exit(&t_infer);
 
-    //        int open = net->load_model_dr(globalbinpath);
-    //        if (open<0)
-    //        {
-    //            printf("load file files\n");
-    //            DataReaderFromEmpty dr;
-    //            net->load_model_dr(dr);
-    //        }
-    //        net->load_model_pipe();
-    //        for (int i=0; i<2; i++)
-    //        {
-    //            inference(*net, ncnn::Mat(227, 227, 3));
-    //        }
-    //    ncnn::current_layer_idx_f2p = 0;
-    //    ncnn::current_layer_idx_p2i = 0;
-    //    infer_start = 0;
-    //    pipe_start = 0;
-    //    for_cal_time = 0;
-    //    for_skp_time = 0;
-
-    //    net_in.load_model(globalbinpath);
-    //    net_in.load_model_pipe();
-    //    inference(net_in, ncnn::Mat(227, 227, 3));
-
-    //    net.load_param(gloableparampath);
-    //
-
-
-    pthread_mutex_lock(&param_lock);
-    param_finish = 100;
-    param_finish_1 = 100;
-    pthread_mutex_unlock(&param_lock);
-    pthread_cond_signal(&param_cond);
-    pthread_cond_signal(&param_cond_1);
-
-    pthread_cond_signal(&param_cond_cpu1);
-    pthread_cond_signal(&param_cond_cpu2);
-    pthread_cond_signal(&param_cond_cpu3);
-    printf("param finish_____________\n");
-
-    //    pthread_mutex_lock(&param_lock);
-    //    while (param_finish_1 == 0 ){
-    //        pthread_cond_wait(&param_cond_1, &param_lock);
-    //    }
-    //    pthread_mutex_unlock(&param_lock);
-
-    //    int open = net->load_model_dr(globalbinpath);
-    //    if (open<0)
-    //    {
-    //        printf("load file files\n");
-    //        DataReaderFromEmpty dr;
-    //        net->load_model_dr(dr);
-    //    }
-    //    net->load_model_pipe();
-    //    net->load_model_pipe();
-    //    net->load_model_pipe();
-    //    net->load_model_pipe();
-    //    net->load_model_pipe();
-    //    inference(*net, ncnn::Mat(227, 227, 3));
-    //    inference(*net, ncnn::Mat(227, 227, 3));
-    //    inference(*net, ncnn::Mat(227, 227, 3));
-
-    //    net->load_param(gloableparampath);
-    printf("__________pipe tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
-    net->load_model_pipe();
-    pipe_end = ncnn::get_current_time();
-    pipe_time = pipe_end - pipe_start;
-    printf("__________inf tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
-    inference(*net, ncnn::Mat(227, 227, 3));
-    //    inference(net, ncnn::Mat(227, 227, 3));
-    //    inference(*stu1, ncnn::Mat(227, 227, 3));
-    //    inference(*stu1, ncnn::Mat(227, 227, 3));
-    //    inference(*stu1, ncnn::Mat(227, 227, 3));
-    //    inference(*stu1, ncnn::Mat(227, 227, 3));
-    //    inference(*stu1, ncnn::Mat(227, 227, 3));
-    //    inference(*stu1, ncnn::Mat(227, 227, 3));
-    //    inference(*stu1, ncnn::Mat(227, 227, 3));
-    //    inference(*stu1, ncnn::Mat(227, 227, 3));
-
-
-    //    for(int ii=0; ii<0;ii++)
-    //    {
-    //        const std::vector<const char*>& input_names__ = net->input_names();
-    //        const std::vector<const char*>& output_names__ = net->output_names();
-    //
-    //        ncnn::Mat out__;
-    //
-    //        infer_start = ncnn::get_current_time();
-    //
-    //        ncnn::Extractor ex__ = net->create_extractor();
-    //        ex__.input(input_names__[0], ncnn::Mat(227, 227, 3));
-    //        ex__.extract(output_names__[0], out__);
-    //
-    //        //        float* ptr = (float*)out__.data;
-    //        //        printf("%f\n", *ptr);
-    //
-    //        infer_end = ncnn::get_current_time();
-    //        infer_time = infer_end - infer_start;
-    //        fprintf(stderr, "2d infer time =  %7.2f\n", infer_time);
-    //    }
-
-    return 0;
-    //    printf("infer fork %d", fork());
-    //    while(1)
-    //        {
-    //            sleep(1);
-    //            printf("inf tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
-    //        }
 }
 
-void *dr_thread(void *args){
-#ifdef __CPU_MASK__
-    cpu_set_t mask;  //CPU核的集合
-    cpu_set_t get;   //获取在集合中的CPU
-    CPU_ZERO(&mask);    //置空
-    CPU_SET(dr_cpu,&mask);   //设置亲和力值
-    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
-    {
-        printf("warning: could not set CPU affinity, continuing...\n");
-    }
-#endif
-
-    //    fprintf(stderr, "start dr\n");
-    auto *net=(ncnn::Net*)args;
-    //    printf("drr tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
-
-    //    net.load_param(gloableparampath);
-
-    //    pthread_mutex_lock(&param_lock);
-    //    param_finish = 100;
-    //    param_finish_1 = 100;
-    //    pthread_mutex_unlock(&param_lock);
-    //    pthread_cond_signal(&param_cond);
-    //    pthread_cond_signal(&param_cond_1);
-    //    printf("param finish_____________\n");
-
-    pthread_mutex_lock(&param_lock);
-    while (param_finish_1 == 0 ){
-        pthread_cond_wait(&param_cond_1, &param_lock);
-    }
-    pthread_mutex_unlock(&param_lock);
-    //        net.load_param(gloableparampath);
-
-    dr_start = ncnn::get_current_time();
-
-    //    printf("%d\n", fork());
-
-    //    ncnn::Layer* layer = net->layers()[0];
-    //    net->load_model_dr_layer(gloableparampath, 0);
-
-    int open = net->load_model_dr(globalbinpath);
-    if (open<0)
-    {
-        printf("load file files\n");
-        DataReaderFromEmpty dr;
-        net->load_model_dr(dr);
-    }
-    //
-    //
-    //    //    DataReaderFromEmpty dr;
-    //    //    net->load_model_dr(dr);
-    //
-    dr_end = ncnn::get_current_time();
-    dr_time = dr_end - dr_start;
-
-    fprintf(stderr, "load model = %7.2f\n", dr_time);
-    //    printf("dr fork %d", fork());
-    //    while(1)
-    //    {
-    //        sleep(1);
-    //        printf("drr tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
-    //    }
-
-    //    sleep(200000);
-    //    while(1);
-    return 0;
-    //    pthread_exit(&t_dr);
-
-
-    //    inference(*net, ncnn::Mat(227, 227, 3));
-    //    fprintf(stderr, "inference\n");
-}
-
-void *pipe_thread(void *args){
-
-    //    pthread_t t_pipe;
-    //pthread_t t_dr;
-
-#ifdef __CPU_MASK__
-    cpu_set_t mask;  //CPU核的集合
-    cpu_set_t get;   //获取在集合中的CPU
-    CPU_ZERO(&mask);    //置空
-    CPU_SET(pipe_cpu,&mask);   //设置亲和力值
-    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
-    {
-        printf("warning: could not set CPU affinity, continuing...\n");
-    }
-#endif
-    //    fprintf(stderr, "start pipe\n");
-    //    net->load_param(gloableparampath);
-
-    //    printf("pip tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
-    //    pipe_start = ncnn::get_current_time();
-    //    sleep(1);
-
-    pthread_mutex_lock(&param_lock);
-    while (param_finish == 0 ){
-        pthread_cond_wait(&param_cond, &param_lock);
-    }
-    pthread_mutex_unlock(&param_lock);
-    //    net.load_param(gloableparampath);
-
-    auto *net=(ncnn::Net*)args;
-
-    //    net->load_model_dr_layer(gloableparampath, 1);
-
-    net->load_model_pipe();
-
-    pipe_end = ncnn::get_current_time();
-    pipe_time = pipe_end - pipe_start;
-
-    //    fprintf(stderr, "load pipeline = %7.2f\n", pipe_time);
-    //    printf("pp fork %d", fork());
-    //    while(1)
-    //    {
-    //        sleep(1);
-    //        printf("pip tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
-    //    }
-
-    //    sleep(200000);
-    //    while(1);
-    return 0;
-    //    pthread_exit(&t_pipe);
-
-    //    inference(*net, ncnn::Mat(227, 227, 3));
-    //    fprintf(stderr, "inference\n");
-}
-
-
-/////////////////////////////////////////////////////////////////////////////
-std::vector<double> rc_times(1000, -1);
-DataReaderFromEmpty drp;
-ncnn::ModelBinFromDataReader mb(drp);
-
-
-#define CPU_NUMS 4
-int CPU_LIST[] = {0, 1, 2, 3}; //{1,2};//
-//#define CPU_NUMS 6
-//int CPU_LIST[] = {0, 1, 2, 3, 4, 5}; //{1,2};//
-int CPU_VK_M = 7;
-std::vector<int> cpu_Vectors[CPU_NUMS];
-std::vector<int> cpu7_Vector;
-
-double cpu_times[CPU_NUMS];
-pthread_cond_t param_cond_cpus[CPU_NUMS];
-
-void *thread_cpu4567(void *args){
+void * thread_cpuBig(void *args){
 #ifdef __EMSCRIPTEN__
 #define MODEL_DIR "/working/"
 #else
@@ -672,7 +472,7 @@ void *thread_cpu4567(void *args){
 #ifdef __CPU_MASK__
     cpu_set_t mask;                                      //CPU核的集合
     CPU_ZERO(&mask);                                     //置空
-    CPU_SET(0, &mask);                                   //设置亲和力值
+    CPU_SET(7, &mask);                                   //设置亲和力值
     if (sched_setaffinity(0, sizeof(mask), &mask) == -1) //设置线程CPU亲和力
     {
         printf("warning: could not set CPU affinity, continuing...\n");
@@ -711,16 +511,17 @@ void *thread_cpu4567(void *args){
     pthread_cond_signal(&param_cond_cpu4);
 
 
-    printf("param finish_____________\n");
-    printf("__________t_cpu4567 tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
+//    printf("param finish_____________\n");
+    printf("_____    Thread_exec_(cpu.large)     tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
+//    std::cout<<"_____    Thread_exec_(cpularge)     tid="<<pthread_self()<<",cpu="<<sched_getcpu()<<std::endl;
     double start_time = ncnn::get_current_time();
     /*read*/
-    printf("load file i %s\n", globalbinpath);
-    FILE* fp = fopen(globalbinpath, "rb");
-    printf("load file if %s\n", globalbinpath);
+//    FILE* fp = fopen(globalbinpath, "rb");
+//    printf("_____    load file %s\n", globalbinpath);
 //    if (!fp)
 //    {
-//        NCNN_LOGE("fopen %s failed", globalbinpath);
+////        NCNN_LOGE("fopen %s failed", globalbinpath);
+//        printf("fopen %s failed", globalbinpath);
 //        //        return 0;
 //    }
 //    else
@@ -728,13 +529,16 @@ void *thread_cpu4567(void *args){
 //        ncnn::DataReaderFromStdio dr(fp);
 //        if (net->layers().empty())
 //        {
-//            NCNN_LOGE("network graph not ready");
+////            NCNN_LOGE("network graph not ready");
+//            printf("network graph not ready");
 //            //        return 0;
 //        }
 //        ncnn::ModelBinFromDataReader mb1(dr);
 //
 //        mb = mb1;
 //    }
+    DataReaderFromEmpty dr;
+    ncnn::ModelBinFromDataReader mb(dr);//get_dr(fp, net));
 
     /*create*/
     double s0 = ncnn::get_current_time();
@@ -765,7 +569,7 @@ void *thread_cpu4567(void *args){
     //    double cal_time= 0;
     //    for(int ii=0; ii<list_len; ii++){
     //        int i = cpu7_list[ii];
-    for(int i: cpu7_Vector){
+    for(int i: cpuBig_Vector){
         //        double s = ncnn::get_current_time();
         net->load_model_layer(mb, i);
         if(USE_PACK_ARM)
@@ -780,20 +584,20 @@ void *thread_cpu4567(void *args){
     }
 
     double start_time_inf = ncnn::get_current_time();
-    inference(*net, ncnn::Mat(227, 227, 3), true);
+    inference(*net, ncnn::Mat(224, 224, 3), true);
     double end_time = ncnn::get_current_time();
     largecore_rc_time = start_time_inf-s0;
-    printf("\n===================================================================================================rc=%f infer=%f time = %f\n", start_time_inf-s0, end_time - start_time_inf, end_time - start_time);
-    if (fp)
-    {
-        fclose(fp);
-    }
+    printf("_____    Thread_exec_(cpu.large)[FINISH]     rc=%f infer=%f time = %f\n", start_time_inf-s0, end_time - start_time_inf, end_time - start_time);
+//    if (fp)
+//    {
+//        fclose(fp);
+//    }
 
     param_finish_1 = 0;
     return 0;
 }
 
-void *thread_cpu3(void *args){
+void * thread_cpuLittle(void *args){
 
     pthread_mutex_lock(&param_lock);
     while (param_finish_1 == 0 ){
@@ -804,20 +608,29 @@ void *thread_cpu3(void *args){
 #ifdef __CPU_MASK__
     cpu_set_t mask;  //CPU核的集合
     CPU_ZERO(&mask);    //置空
-    CPU_SET(6,&mask);   //设置亲和力值
+    CPU_SET(3,&mask);   //设置亲和力值
     if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
     {
         printf("warning: could not set CPU affinity, continuing...\n");
     }
 #endif
-    printf("__________t_cpu3    tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    Thread_load&pipe_(cpu.little)    tid=%ld,cpu=%d\n",  pthread_self(), sched_getcpu());
     double start_time = ncnn::get_current_time();
+
+    DataReaderFromEmpty dr;
+    ncnn::ModelBinFromDataReader mb(dr);//get_dr(fp, net));
 
     auto *net=(ncnn::Net*)args;
     int layer_count = (int)net->layers().size();
     int start_i=2;
     for(int i=start_i; i<layer_count;){
         double s = ncnn::get_current_time();
+#ifdef __CPU_MASK__
+        if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
+        {
+            printf("warning: could not set CPU affinity, continuing...\n");
+        }
+#endif
         net->load_model_layer(mb, i);
         if(USE_PACK_ARM)
         {
@@ -840,154 +653,14 @@ void *thread_cpu3(void *args){
         pthread_mutex_unlock(&next_layer_lock);
     }
     double end_time = ncnn::get_current_time();
-    printf("\n==============================================================================================cpu3_time = %ff\n", end_time - start_time);
+    printf("_____    Thread_load&pipe_(cpu.little)[FINISH]    time = %ff\n", end_time - start_time);
     return 0;
 }
 
-
-//typedef struct net_cid{
-//    int cpu_id;
-//    int cpu_set;
-//    ncnn::Net* net;
-//}net_cid;
-typedef struct net_cid{
-    int cpu_id;
-    int cpu_set;
-    ncnn::Net* net;
-    ncnn::ModelBinFromDataReader* mb;
-}net_cid;
-typedef struct net_cid_f{
-    int cpu_id;
-    int cpu_set;
-    ncnn::Net* net;
-    //    ncnn::ModelBinFromDataReader* mb;
-    //    FILE * f;
-} net_cid_file;
-void *thread_list(void *args){
-
-    auto *net_cid_ = (net_cid*)args;
-
-//    pthread_mutex_lock(&param_lock);
-//    while (param_finish_1 == 0 ){
-//        //        printf("=================\n");
-//        pthread_cond_wait(&param_cond_cpus[net_cid_->cpu_id], &param_lock);
-//        //        sleep(0);
-//    }
-//    pthread_mutex_unlock(&param_lock);
-
-#ifdef __CPU_MASK__
-    cpu_set_t mask;  //CPU核的集合
-    CPU_ZERO(&mask);    //置空
-    CPU_SET(net_cid_->cpu_set,&mask);   //设置亲和力值
-    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
-    {
-        printf("warning: could not set CPU affinity, continuing...\n");
-    }
-#endif
-    printf("__________t%d_cpu%d    tid=%ld,cpu=%d\n",net_cid_->cpu_id, net_cid_->cpu_set, pthread_self(), sched_getcpu());
-    double start_time = ncnn::get_current_time();
-
-
-    //        auto net=net_cid_->net;
-    int list_len = cpu_Vectors[net_cid_->cpu_id].size();
-    double cal_time= 0;
-    for(int ii=0; ii<list_len; ii++){
-        int i = cpu_Vectors[net_cid_->cpu_id][ii];
-        double s = ncnn::get_current_time();
-        net_cid_->net->load_model_layer(*net_cid_->mb, i);
-        net_cid_->net->load_pipe_layer(i);
-        net_cid_->net->upload_model_layer(i);
-        double e = ncnn::get_current_time();
-        rc_times[i] = e-s;
-        cal_time+= e-s;
-        if(timeshow)
-        {
-            printf("%d,%f\n", i, e - s);
-        }
-        //        net->load_model_layer(mb, i);
-        //        net->load_pipe_layer(i);
-        syn_act(infer_syn, i);
-    }
-    double end_time = ncnn::get_current_time();
-    printf("\n==============================================================================================list_cpu%d_time = %f %f\n", sched_getcpu(), end_time - start_time, cal_time);
-    cpu_times[net_cid_->cpu_id] = end_time - start_time;
-    return 0;
-}
-
-void * thread_list_file(void *args){
-
-    auto *net_cid_ = (net_cid_file*)args;
-#ifdef __CPU_MASK__
-    cpu_set_t mask;  //CPU�˵ļ���
-    CPU_ZERO(&mask);    //�ÿ�
-    CPU_SET(net_cid_->cpu_set,&mask);   //�����׺���ֵ
-    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//�����߳�CPU�׺���
-    {
-        printf("warning: could not set CPU affinity, continuing...\n");
-    }
-#endif
-    FILE* fp_ = fopen(globalbinpath, "rb");
-    fseek(fp_,0,SEEK_SET);
-    ncnn::DataReaderFromStdio dr_(fp_);
-    ncnn::ModelBinFromDataReader mb_(dr_);
-
-    //#if NCNN_VULKAN
-    //    FILE*  vk_weight_file_read_ = fopen(vk_weight_file_read_path, "rb");
-    //    fseek(vk_weight_file_read_,  0, SEEK_SET);
-    //#endif
-
-    printf("__________t%d_cpu%d    tid=%ld,cpu=%d\n",net_cid_->cpu_id, net_cid_->cpu_set, pthread_self(), sched_getcpu());
-    double start_time = ncnn::get_current_time();
-
-
-    //        auto net=net_cid_->net;
-    int list_len = cpu_Vectors[net_cid_->cpu_id].size();
-    double cal_time= 0;
-    for(int ii=0; ii<list_len; ii++){
-        int i = cpu_Vectors[net_cid_->cpu_id][ii];
-        double s = ncnn::get_current_time();
-
-        fseek(fp_,  DR_file_Vectors[i], SEEK_SET);
-        net_cid_->net->load_model_layer(mb_, i);
-        if(USE_PACK_ARM)
-        {
-            fseek(arm_weight_file_reads[sched_getcpu()], arm_weight_file_seek_Vectors[i - 1], SEEK_SET);
-        }
-        net_cid_->net->load_pipe_layer(i);
-        //#if NCNN_VULKAN
-        //        fseek(vk_weight_file_read_,  vk_weight_file_seek_Vectors[i], SEEK_SET);
-        //#endif
-        net_cid_->net->upload_model_layer(i);
-        double e = ncnn::get_current_time();
-        rc_times[i] = e-s;
-//        double e = ncnn::get_current_time();
-
-        cal_time+= e-s;
-        if(timeshow)
-        {
-            printf("%d,%f\n", i, e - s);
-        }
-        //        net->load_model_layer(mb, i);
-        //        net->load_pipe_layer(i);
-        syn_act(infer_syn, i);
-    }
-    double end_time = ncnn::get_current_time();
-    printf("\n==============================================================================================list_cpu%d_time = %f %f\n", sched_getcpu(), end_time - start_time, cal_time);
-
-    if (fp_)
-    {
-        fclose(fp_);
-    }
-    return 0;
-}
-
-void benchmark_new_(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
+void benchmark_biglittle(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
 {
+    std::cout<<"=============benchmark_biglittle[START]=========="<<std::endl;
     //    rc_times.clear();
-
-    layer_next=5;
-    timeshow=0;
-
     ncnn::Mat in = _in;
     in.fill(0.01f);
 
@@ -1018,48 +691,188 @@ void benchmark_new_(const char* comment, const ncnn::Mat& _in, const ncnn::Optio
 #else
 #define MODEL_DIR ""
 #endif
-
+    layer_next=2;
+    timeshow=0;
     char parampath[256];
     sprintf(parampath, MODEL_DIR "%s.param", comment);
     sprintf(gloableparampath, MODEL_DIR "%s.param", comment);
-
     char binpath[256];
     sprintf(binpath, MODEL_DIR "%s.bin", comment);
     sprintf(globalbinpath, MODEL_DIR "%s.bin", comment);
 
 
-    ncnn::current_layer_idx_f2p = 0;
-    ncnn::current_layer_idx_p2i = 0;
-
     net.load_param(parampath);
     rc_times = std::vector<double>(net.layers().size(), -1);
-    //    printf("rc_times_len=%zu\n", rc_times.size());
 
-    std::thread t_4567(thread_cpu4567, (void*)&net);
-    net_cid net_cid0 =  {0, 4, &net};
-    std::thread t_0(thread_list, (void*)&net_cid0);
-    net_cid net_cid1 =  {1, 5, &net};
-    std::thread t_1(thread_list, (void*)&net_cid1);
-    net_cid net_cid2 =  {2, 6, &net};
-    std::thread t_2(thread_list, (void*)&net_cid2);
-    net_cid net_cid3 =  {3, 7, &net};
-    std::thread t_3(thread_list, (void*)&net_cid3);
-    t_4567.join();
-    t_0.join();
-    t_1.join();
-    t_2.join();
-    t_3.join();
-
+    std::thread t_big(thread_cpuBig, (void*)&net);
+    std::thread t_little(thread_cpuLittle, (void*)&net);
+    t_big.join();
+    t_little.join();
+    std::cout<<"=============benchmark_biglittle[FINISH] rc_times_len="<<rc_times.size()<<"==========\n";
 }
 
-void cold_boot_empty(ncnn::Net& net)
-{
+////////////////////////benchmark_new//////////////////////////////////
+typedef struct net_cid{
+    int cpu_id;
+    int cpu_set;
+    ncnn::Net* net;
+//    ncnn::ModelBinFromDataReader* mb;
+}net_cid;
+typedef struct net_cid_f{
+    int cpu_id;
+    int cpu_set;
+    ncnn::Net* net;
+    //    ncnn::ModelBinFromDataReader* mb;
+    //    FILE * f;
+} net_cid_file;
+
+void *thread_list(void *args){
+
+    auto *net_cid_ = (net_cid*)args;
+
+//    pthread_mutex_lock(&param_lock);
+//    while (param_finish_1 == 0 ){
+//        //        printf("=================\n");
+//        pthread_cond_wait(&param_cond_cpus[net_cid_->cpu_id], &param_lock);
+//        //        sleep(0);
+//    }
+//    pthread_mutex_unlock(&param_lock);
+
+#ifdef __CPU_MASK__
+    cpu_set_t mask;  //CPU核的集合
+    CPU_ZERO(&mask);    //置空
+    CPU_SET(net_cid_->cpu_set,&mask);   //设置亲和力值
+    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
+    {
+        printf("warning: could not set CPU affinity, continuing...\n");
+    }
+#endif
+//    printf("__________t%d_cpu%d    tid=%ld,cpu=%d\n",net_cid_->cpu_id, net_cid_->cpu_set, pthread_self(), sched_getcpu());
+    printf("_____    Thread_load&pipe_(cpu%d)([%d])    tid=%ld,cpu=%d\n",net_cid_->cpu_set,net_cid_->cpu_id,  pthread_self(), sched_getcpu());
+//    std::cout<<"_____    Thread_load&pipe_(cpu"<<net_cid_->cpu_set<<")(["<<sched_getcpu()<<"])     tid="<<pthread_self()<<",cpu="<<sched_getcpu()<<std::endl;
+    double start_time = ncnn::get_current_time();
     DataReaderFromEmpty dr;
+    ncnn::ModelBinFromDataReader mb(dr);//get_dr(fp, net));
+
+    //        auto net=net_cid_->net;
+    int list_len = cpuLittle_Vectors[net_cid_->cpu_id].size();
+    double cal_time= 0;
+    for(int ii=0; ii<list_len; ii++){
+        int i = cpuLittle_Vectors[net_cid_->cpu_id][ii];
+        double s = ncnn::get_current_time();
+        net_cid_->net->load_model_layer(mb, i);
+        if(USE_PACK_ARM)
+        {
+            fseek(arm_weight_file_reads[sched_getcpu()], arm_weight_file_seek_Vectors[i - 1], SEEK_SET);
+        }
+        net_cid_->net->load_pipe_layer(i);
+        net_cid_->net->upload_model_layer(i);
+        double e = ncnn::get_current_time();
+        rc_times[i] = e-s;
+        cal_time+= e-s;
+        if(timeshow)
+        {
+            printf("%d,%f\n", i, e - s);
+        }
+        //        net->load_model_layer(mb, i);
+        //        net->load_pipe_layer(i);
+        syn_act(infer_syn, i);
+    }
+    double end_time = ncnn::get_current_time();
+    cpu_times[net_cid_->cpu_id] = end_time - start_time;
+//    printf("_____    cpu_times[%d] = %f \n", net_cid_->cpu_id, end_time - start_time);
+    printf("_____    Thread_load&pipe_(cpu%d)([%d])[FINISH]        time = %f %f\n", net_cid_->cpu_set,sched_getcpu(), end_time - start_time, cal_time);
+//    std::cout<<"_____    Thread_load&pipe_(cpu"<<net_cid_->cpu_set<<")(["<<sched_getcpu()<<"])[FINISH]     time="<<end_time - start_time<<",cal time="<<cal_time<<std::endl;
+    return 0;
+}
+
+void * thread_list_file(void *args){
+
+    auto *net_cid_ = (net_cid_file*)args;
+#ifdef __CPU_MASK__
+    cpu_set_t mask;  //CPU�˵ļ���
+    CPU_ZERO(&mask);    //�ÿ�
+    CPU_SET(net_cid_->cpu_set,&mask);   //�����׺���ֵ
+    if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//�����߳�CPU�׺���
+    {
+        printf("warning: could not set CPU affinity, continuing...\n");
+    }
+#endif
+    FILE* fp_ = fopen(globalbinpath, "rb");
+    fseek(fp_,0,SEEK_SET);
+    ncnn::DataReaderFromStdio dr_(fp_);
+    ncnn::ModelBinFromDataReader mb_(dr_);
+
+    //#if NCNN_VULKAN
+    //    FILE*  vk_weight_file_read_ = fopen(vk_weight_file_read_path, "rb");
+    //    fseek(vk_weight_file_read_,  0, SEEK_SET);
+    //#endif
+//    std::cout<<"_____    Thread_load&pipe_(cpu"<<net_cid_->cpu_set<<")(["<<sched_getcpu()<<"])     tid="<<pthread_self()<<",cpu="<<sched_getcpu()<<std::endl;
+    printf("_____    Thread_load&pipe_(cpu%d)([%d])    tid=%ld,cpu=%d\n",net_cid_->cpu_set,net_cid_->cpu_id,  pthread_self(), sched_getcpu());
+    double start_time = ncnn::get_current_time();
+
+
+    //        auto net=net_cid_->net;
+    int list_len = cpuLittle_Vectors[net_cid_->cpu_id].size();
+    double cal_time= 0;
+    for(int ii=0; ii<list_len; ii++){
+        int i = cpuLittle_Vectors[net_cid_->cpu_id][ii];
+        double s = ncnn::get_current_time();
+
+#ifdef __CPU_MASK__
+        if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//�����߳�CPU�׺���
+        {
+            printf("warning: could not set CPU affinity, continuing...\n");
+        }
+#endif
+        fseek(fp_,  DR_file_Vectors[i], SEEK_SET);
+        net_cid_->net->load_model_layer(mb_, i);
+        if(USE_PACK_ARM)
+        {
+            fseek(arm_weight_file_reads[sched_getcpu()], arm_weight_file_seek_Vectors[i - 1], SEEK_SET);
+        }
+        net_cid_->net->load_pipe_layer(i);
+        //#if NCNN_VULKAN
+        //        fseek(vk_weight_file_read_,  vk_weight_file_seek_Vectors[i], SEEK_SET);
+        //#endif
+        net_cid_->net->upload_model_layer(i);
+        double e = ncnn::get_current_time();
+        rc_times[i] = e-s;
+//        double e = ncnn::get_current_time();
+
+        cal_time+= e-s;
+        if(timeshow)
+        {
+            printf("_____    load&pipe %d,%f\n", i, e - s);
+        }
+        //        net->load_model_layer(mb, i);
+        //        net->load_pipe_layer(i);
+        syn_act(infer_syn, i);
+    }
+    double end_time = ncnn::get_current_time();
+    cpu_times[net_cid_->cpu_id] = end_time - start_time;
+//    printf("_____    cpu_times[%d] = %f \n", net_cid_->cpu_id, end_time - start_time);
+    printf("_____    Thread_load&pipe_(cpu%d)([%d])[FINISH]        time = %f %f\n", net_cid_->cpu_set,sched_getcpu(), end_time - start_time, cal_time);
+//    std::cout<<"_____    Thread_load&pipe_(cpu"<<net_cid_->cpu_set<<")(["<<sched_getcpu()<<"])[FINISH]     time="<<end_time - start_time<<",cal time="<<cal_time<<std::endl;
+
+    if (fp_)
+    {
+        fclose(fp_);
+    }
+    return 0;
+}
+
+void cold_boot_empty(ncnn::Net& net, const ncnn::Mat& in)
+{
+//    std::cout<<"_____    Thread_exec_(cpu4567)     tid="<<pthread_self()<<",cpu="<<sched_getcpu()<<std::endl;
+    printf("_____    Thread_exec_(cpu4567)     tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
+    DataReaderFromEmpty dr;
+    ncnn::ModelBinFromDataReader mb(dr);//get_dr(fp, net));
 
     std::thread th[CPU_NUMS];
     net_cid net_cids[CPU_NUMS];
     for(int i = 0; i<CPU_NUMS; i++){
-        net_cids[i] =  {i, CPU_LIST[i], &net, &mb};
+        net_cids[i] =  {i, CPU_LITTLE_s[i], &net};//, &mb};
         th[i] = std::thread(thread_list, (void*)&net_cids[i]);
     }
     //    net_cid net_cid0 =  {0, 1, &net, &mb};
@@ -1085,31 +898,39 @@ void cold_boot_empty(ncnn::Net& net)
     rc_times[1] = e1-s1;
 
 
-    int list_len = cpu7_Vector.size();
+    int list_len = cpuBig_Vector.size();
     double cal_time= 0;
     for(int ii=0; ii<list_len; ii++){
-        int i = cpu7_Vector[ii];
+        int i = cpuBig_Vector[ii];
         net.load_model_layer(mb, i);
+        if(USE_PACK_ARM)
+        {
+            fseek(arm_weight_file_reads[sched_getcpu()], arm_weight_file_seek_Vectors[i - 1], SEEK_SET);
+        }
         net.load_pipe_layer(i);
         syn_act(infer_syn, i);
     }
 
-//        for(int i = 0; i<CPU_NUMS; i++){
-//            th[i].join();
-//        }
-    double start_time_inf = ncnn::get_current_time();
-    inference(net, ncnn::Mat(227, 227, 3), true);
-    double end_time = ncnn::get_current_time();
-    largecore_rc_time = start_time_inf-s0;
-    printf("\n===================================================================================================rc=%f infer=%f \n", start_time_inf-s, end_time - start_time_inf);
-    //    t_0.join();
-    //    t_1.join();
     for(int i = 0; i<CPU_NUMS; i++){
         th[i].join();
     }
+
+    double start_time_inf = ncnn::get_current_time();
+    inference(net, in, true);
+    double end_time = ncnn::get_current_time();
+    largecore_rc_time = start_time_inf-s0;
+//    std::cout<<"_____    Thread_exec_(cpu4567)[FINISH]     rc="<<start_time_inf-s<<",infer="<<end_time - start_time_inf<<std::endl;
+    printf("_____    Thread_exec_(cpu4567)[FINISH]     rc=%f infer=%f\n", start_time_inf-s, end_time - start_time_inf);
+    //    t_0.join();
+    //    t_1.join();
+//    for(int i = 0; i<CPU_NUMS; i++){
+//        th[i].join();
+//    }
 }
 
 void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
+//    std::cout<<"_____    Thread_exec_(cpu4567)     tid="<<pthread_self()<<",cpu="<<sched_getcpu()<<std::endl;
+    printf("_____    Thread_exec_(cpu4567)     tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
     if(USE_PACK_ARM)
     {
         for(int i=0; i<8; i++){
@@ -1117,17 +938,17 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
         }
     }
     ncnn::DataReaderFromStdio dr(fp);
-    ncnn::ModelBinFromDataReader mb1(dr);
+    ncnn::ModelBinFromDataReader mb(dr);
 
     FILE* fps[CPU_NUMS];
     std::thread th[CPU_NUMS];
     net_cid_file net_cids[CPU_NUMS];
-    ncnn::ModelBinFromDataReader mb_(mb1);//[thread_times];//;
+    ncnn::ModelBinFromDataReader mb_(mb);//[thread_times];//;
 
     for(int i = 0; i<CPU_NUMS; i++){
         fps[i] = fopen(globalbinpath, "rb");
         fseek(fps[i],0,SEEK_SET);
-        net_cids[i] =  {i, CPU_LIST[i], &net};//, &mb, fp};
+        net_cids[i] =  {i, CPU_LITTLE_s[i], &net};//, &mb, fp};
         th[i] = std::thread(thread_list_file, (void*)&net_cids[i]);
     }
 
@@ -1158,10 +979,10 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
     double e1 = ncnn::get_current_time();
     rc_times[1] = e1-s1;
 
-    int list_len = cpu7_Vector.size();
+    int list_len = cpuBig_Vector.size();
     double cal_time= 0;
     for(int ii=0; ii<list_len; ii++){
-        int i = cpu7_Vector[ii];
+        int i = cpuBig_Vector[ii];
         fseek(fp, DR_file_Vectors[i], SEEK_SET);
         net.load_model_layer(mb, i);
         if(USE_PACK_ARM)
@@ -1184,7 +1005,8 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
     inference(net, in, true);
     double end_time = ncnn::get_current_time();
     largecore_rc_time = start_time_inf-s0;
-    printf("\n===================================================================================================pipeline=%f infer=%f\n", start_time_inf-s, end_time - start_time_inf);
+//    std::cout<<"_____    Thread_exec_(cpu4567)[FINISH]     rc="<<start_time_inf-s<<",infer="<<end_time - start_time_inf<<std::endl;
+    printf("_____    Thread_exec_(cpu4567)[FINISH]     rc=%f infer=%f\n", start_time_inf-s, end_time - start_time_inf);
     //            t_0.join();
     //            t_1.join();
     for(int i = 0; i<CPU_NUMS; i++){
@@ -1196,8 +1018,10 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
     }
 }
 
+int warmUp = 0;
 void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
 {
+    std::cout<<"=============benchmark_new[START]=========="<<std::endl;
     ncnn::Mat in = _in;
     in.fill(0.01f);
 
@@ -1248,13 +1072,12 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
 
 
 
-    printf("start %f\n", ncnn::get_current_time()-start_t);
-    printf("\n==s====================\n");
-    printf("\n=========s=============\n");
+//    printf("start %f\n", ncnn::get_current_time()-start_t);
+//    printf("\n==s====================\n");
+//    printf("\n=========s=============\n");
     double s_time = ncnn::get_current_time();
-    int warmUp = 0;
-
-    if(warmUp)
+//    int warmUp = 0;
+    if(warmUp) //Warm up SoC to max the SoC CPU's freq.
     {
         ncnn::Net net_in;
         net_in.opt = net.opt;
@@ -1266,7 +1089,7 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
         int open = net_in.load_model_dr(globalbinpath);
         if (open < 0)
         {
-            printf("load file files\n");
+//            printf("load file files\n");
             DataReaderFromEmpty dr;
             net_in.load_model_dr(dr);
         }
@@ -1281,112 +1104,68 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
 
             //        printf("infer p end %f\n", ncnn::get_current_time()-start_t);
         }
-        ncnn::current_layer_idx_f2p = 0;
-        ncnn::current_layer_idx_p2i = 0;
-        infer_start = 0;
-        pipe_start = 0;
-        for_cal_time = 0;
-        for_skp_time = 0;
-        read_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
-        create_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
-        infer_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
     }
+    ncnn::current_layer_idx_f2p = 0;
+    ncnn::current_layer_idx_p2i = 0;
+    infer_start = 0;
+    pipe_start = 0;
+    for_cal_time = 0;
+    for_skp_time = 0;
+    read_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
+    create_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
+    infer_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
 //    clear_times_save();
 //    resize_times_save(net.layers().size());
 
-    printf("param finish_____________\n");
+//    printf("param finish_____________\n");
     if(opt.use_vulkan_compute)
     {
 #ifdef __CPU_MASK__
         cpu_set_t mask;                                      //CPU�˵ļ���
         CPU_ZERO(&mask);                                     //�ÿ�
-        CPU_SET(CPU_VK_M, &mask);                            //�����׺���ֵ
+        CPU_SET(CPU_BIG_, &mask);                            //�����׺���ֵ
         if (sched_setaffinity(0, sizeof(mask), &mask) == -1) //�����߳�CPU�׺���
         {
             printf("warning: could not set CPU affinity, continuing...\n");
         }
 #endif
     }
-    printf("__________t_cpu4567 tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
+//    printf("_____    Thread_exec_(cpu4567)     tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
     double start_time = ncnn::get_current_time();
     save_start_time = ncnn::get_current_time();
     //read
-    printf("load file %s\n", globalbinpath);
+//
     FILE* fp = fopen(globalbinpath, "rb");
     if (!fp)
     {
-        NCNN_LOGE("fopen %s failed", globalbinpath);
-        cold_boot_empty(net);
+//        NCNN_LOGE("_____    fopen %s failed", globalbinpath);
+        std::cout<<"_____    fopen "<<globalbinpath<<" failed"<<std::endl;
+        cold_boot_empty(net, in);
     }
     else
     {
+        std::cout<<"_____    load file "<<globalbinpath<<std::endl;
         if (net.layers().empty())
         {
-            NCNN_LOGE("network graph not ready");
+//            NCNN_LOGE("_____    network graph not ready");
+            printf("_____    network graph not ready");
         }
         cold_boot_file(net, fp, in);
     }
 
-    printf("_____________________________________________________________________________total time %f\n", ncnn::get_current_time()-start_time);
-
-    printf("_____________________________________________________________________________total time + warmup %f\n", ncnn::get_current_time()-s_time);
-    printf("_____________________________________________________________________________real total time %f\n", ncnn::get_current_time()-start_t);
-    printf("==============================================\n");
+//    printf("_____________________________________________________________________________total time %f\n", ncnn::get_current_time()-start_time);
+//
+//    printf("_____________________________________________________________________________total time + warmup %f\n", ncnn::get_current_time()-s_time);
+//    printf("_____________________________________________________________________________real total time %f\n", ncnn::get_current_time()-start_t);
+//    printf("==============================================\n");
+//    printf("=============benchmark_new[FINISH]___total_time=%f____total_time_+_warmup=%f___real_total_time=%f ==========\n",  ncnn::get_current_time()-start_time, ncnn::get_current_time()-s_time, ncnn::get_current_time()-start_t);
+//    printf("=============benchmark_new[FINISH] ==========\n");
+    std::cout<<"=============benchmark_new[FINISH]___total_time="<<ncnn::get_current_time()-start_time<<"____total_time_+_warmup="<<ncnn::get_current_time()-s_time<<"___real_total_time="<<ncnn::get_current_time()-start_t<<" =========="<<std::endl;
 
 }
 
-void get_time(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
-{
-    //    rc_times.clear();
-    ncnn::Mat in = _in;
-    in.fill(0.01f);
+////////////////////////get_queue//////////////////////////////////
 
-    g_blob_pool_allocator.clear();
-    g_workspace_pool_allocator.clear();
-
-#if NCNN_VULKAN
-    if (opt.use_vulkan_compute)
-    {
-        g_blob_vkallocator->clear();
-        g_staging_vkallocator->clear();
-    }
-#endif // NCNN_VULKAN
-
-    ncnn::Net net;
-
-    net.opt = opt;
-
-#if NCNN_VULKAN
-    if (net.opt.use_vulkan_compute)
-    {
-        net.set_vulkan_device(g_vkdev);
-    }
-#endif // NCNN_VULKAN
-
-#ifdef __EMSCRIPTEN__
-#define MODEL_DIR "/working/"
-#else
-#define MODEL_DIR ""
-#endif
-    layer_next=2;
-    timeshow=0;
-    char parampath[256];
-    sprintf(parampath, MODEL_DIR "%s.param", comment);
-    sprintf(gloableparampath, MODEL_DIR "%s.param", comment);
-    char binpath[256];
-    sprintf(binpath, MODEL_DIR "%s.bin", comment);
-    sprintf(globalbinpath, MODEL_DIR "%s.bin", comment);
-
-
-    net.load_param(parampath);
-    rc_times = std::vector<double>(net.layers().size(), -1);
-    //    printf("rc_times_len=%zu\n", rc_times.size());
-
-    std::thread t_4567(thread_cpu4567, (void*)&net);
-    std::thread t_3(thread_cpu3, (void*)&net);
-    t_4567.join();
-    t_3.join();
-}
 template<typename T>
 T SumVector(std::vector<T>& vec)
 {
@@ -1399,24 +1178,22 @@ T SumVector(std::vector<T>& vec)
 }
 
 double loop_sum=0, last_loop_sum=0,last_infer_time =0, last_largecore_rc_time=0;
-double last_cpu_times[CPU_NUMS];
 double large_rc_need=0;
 double eta=0.25;
 int finish_f=0;
-
-
 void get_largecore_queue(int cnt=0){
 
     if(cnt==0){
         return;
     }
 
-
-    printf("=====================sum=%f rc_time=%f for_cal_time=%f,  \n", last_loop_sum+0, last_largecore_rc_time, last_infer_time);
-    for (double last_cpu_time:last_cpu_times)
-    {
-        printf("%f\n", last_cpu_time);
-    }
+    std::cout<<"=============get_largecore_queue[START]=========="<<std::endl;
+    printf("_____    sum=%f rc_time=%f last_infer_time=%f,  last_CPU_time =[", last_loop_sum+0, last_largecore_rc_time, last_infer_time);
+//    for (double last_cpu_time:last_cpu_times)
+//    {
+//        printf("%f, ", last_cpu_time);
+//    }
+//    printf("]\n");
     //    printf("%f %f %f %F\n", last_cpu3_time, last_cpu2_time, last_cpu1_time, last_cpu0_time);
 
     //    double cpu_times[]={last_cpu0_time, last_cpu1_time, last_cpu2_time, last_cpu3_time};
@@ -1424,22 +1201,24 @@ void get_largecore_queue(int cnt=0){
     double max_cpu_time = 0;
     for (double last_cpu_time : last_cpu_times)
     {
+        printf("%f, ", last_cpu_time);
         max_cpu_time += last_cpu_time/CPU_NUMS;
     }
+    printf("]\n");
 //    max_cpu_time = max_cpu_time*1.5;
     double diff_time = max_cpu_time -(last_largecore_rc_time + last_infer_time);
 
 
-    printf("diff %f t%f m%f\n", diff_time, last_largecore_rc_time + last_infer_time, max_cpu_time);
-//    if(diff_time<0&& cpu7_Vector.size()==0){
-//        finish_f=1;
-//        return;
-//    }
+//    printf("_____    diff %f t%f m%f\n", diff_time, last_largecore_rc_time + last_infer_time, max_cpu_time);
+    if(diff_time<=0&& cpuBig_Vector.size()==0){
+        finish_f=1;
+        return;
+    }
     if(diff_time<0)
         large_rc_need =diff_time*0.5*eta + large_rc_need*(1-0.5*eta);
     else
         large_rc_need =diff_time*eta + large_rc_need*(1-eta);
-    printf("large_rc_need %f diff %f\n", large_rc_need, diff_time);
+    printf("_____    time_cpu7:%f max_time_cpu1-4:%f need_time_cpu7:%f diff:%f \n",last_largecore_rc_time + last_infer_time, max_cpu_time, large_rc_need, diff_time);
 
     std::vector<int> idx_vector;
     for(int i=2; i<rc_times.size(); i++) {
@@ -1448,13 +1227,17 @@ void get_largecore_queue(int cnt=0){
 
     int len = idx_vector.size();
     int i, j; double temp;
-    for (i = 0; i < len - 1; i++)
+    for (i = 0; i < len - 1; i++){
         for (j = 0; j < len - 1 - i; j++)
-            if (rc_times[idx_vector[j]] < rc_times[idx_vector[j + 1]]) {
+        {
+            if (rc_times[idx_vector[j]] < rc_times[idx_vector[j + 1]])
+            {
                 temp = idx_vector[j];
                 idx_vector[j] = idx_vector[j + 1];
                 idx_vector[j + 1] = temp;
             }
+        }
+    }
     //    for(int i: idx_vector){
     //        printf("%d,", i);
     //    }
@@ -1462,35 +1245,47 @@ void get_largecore_queue(int cnt=0){
 
     std::vector<int> cpu7_Vector_;
     double ssum=0;
+    printf("_____    cpu7_rc_times:[");
     for(int idx :idx_vector){
+        printf("%d:%f, ", idx, rc_times[idx]);
         if(ssum + rc_times[idx]<=large_rc_need)
         {
             ssum+=rc_times[idx];
             cpu7_Vector_.push_back(idx);
         }
     }
+    printf("]\n");
+
     std::sort(cpu7_Vector_.begin(), cpu7_Vector_.end());
-    cpu7_Vector = cpu7_Vector_;
+    cpuBig_Vector = cpu7_Vector_;
+    printf("_____    cpuBig_Vector:[");//, large_rc_need, diff_time);
+    for (auto v : cpuBig_Vector)
+    {
+        printf("%d,", v);
+    }
+    printf("]\n");
 
     //    if(diff_time>=0)
     //    {
     ////        double large_rc_need = diff_time;
-    ////        cpu7_Vector+
+    ////        cpuBig_Vector+
     //    }
     //    else{
-    ////        cpu7_Vector-
+    ////        cpuBig_Vector-
     //    }
-    //    cpu7_Vector.push_back(2);
-    //    cpu7_Vector.push_back(5);
-    //    cpu7_Vector.push_back(110);
+    //    cpuBig_Vector.push_back(2);
+    //    cpuBig_Vector.push_back(5);
+    //    cpuBig_Vector.push_back(110);
+    std::cout<<"=============get_largecore_queue[FINISH]=========="<<std::endl;
     return;
 }
 void get_queue_init(){
+    std::cout<<"=============get_queue_init[START]=========="<<std::endl;
     std::vector<int> qs[CPU_NUMS];
     std::vector<double> ts[CPU_NUMS];
     double sums[CPU_NUMS];
     for(int i=2; i<rc_times.size(); i++){
-        if(std::count(cpu7_Vector.begin(), cpu7_Vector.end(), i))
+        if(std::count(cpuBig_Vector.begin(), cpuBig_Vector.end(), i))// i not in cup7
             continue;
 
         for (int j=0; j<CPU_NUMS; j++)
@@ -1504,24 +1299,26 @@ void get_queue_init(){
 
     }
 
-    printf("SUM  ");
+    printf("_____    exec_time SUM:  ");
     for (int j=0; j<CPU_NUMS; j++)
     {
         printf("%f  ", sums[j]);
-        cpu_Vectors[j]= qs[j];
+        cpuLittle_Vectors[j]= qs[j];
     }
     printf("\n");
+    std::cout<<"=============get_queue_init[FINISH]=========="<<std::endl;
 
     return;
 }
 void get_queue()
 {
+    std::cout<<"=============*get_queue[START]=========="<<std::endl;
     std::vector<double> ts[CPU_NUMS];
     double sums[CPU_NUMS];
     //    std::vector<double> t1, t2, t3, t0;
     for (int j=0; j<CPU_NUMS; j++)
     {
-        for (int i : cpu_Vectors[j])
+        for (int i : cpuLittle_Vectors[j])
         {
             ts[j].push_back(rc_times[i]);
         }
@@ -1532,7 +1329,7 @@ void get_queue()
         sums[j] = SumVector(ts[j]);
     }
 
-    printf("SUM  ");
+    printf("_____    SUM  ");
     for (int j=0; j<CPU_NUMS; j++)
     {
         printf("%f  ", sums[j]);
@@ -1541,8 +1338,8 @@ void get_queue()
     //    double sum[]={sum0, sum1, sum2, sum3};
     int minPosition = std::min_element(sums,sums+CPU_NUMS) - sums;
     int maxPosition = std::max_element(sums,sums+CPU_NUMS) - sums;
-    std::vector<int> max_vector = cpu_Vectors[maxPosition];
-    std::vector<int> min_vector = cpu_Vectors[minPosition];
+    std::vector<int> max_vector = cpuLittle_Vectors[maxPosition];
+    std::vector<int> min_vector = cpuLittle_Vectors[minPosition];
 
     int len = max_vector.size();
     int i, j; double temp;
@@ -1574,18 +1371,18 @@ void get_queue()
     }
     std::sort(min_vector.begin(), min_vector.end());
 
-    cpu_Vectors[maxPosition] = max_vector_;
-    cpu_Vectors[minPosition] = min_vector;
+    cpuLittle_Vectors[maxPosition] = max_vector_;
+    cpuLittle_Vectors[minPosition] = min_vector;
     for (int j=0; j<CPU_NUMS; j++)
     {
-        std::sort(cpu_Vectors[j].begin(), cpu_Vectors[j].end());
+        std::sort(cpuLittle_Vectors[j].begin(), cpuLittle_Vectors[j].end());
     }
 
 
     std::vector<double> t_s[CPU_NUMS];
     for (int j=0; j<CPU_NUMS; j++)
     {
-        for (int i : cpu_Vectors[j])
+        for (int i : cpuLittle_Vectors[j])
         {
             t_s[j].push_back(rc_times[i]);
         }
@@ -1597,133 +1394,44 @@ void get_queue()
     }
     for (int j=0; j<CPU_NUMS; j++)
     {
-        printf("int cpu%d_list[]={", j);
-        for (int i = 0; i < cpu_Vectors[j].size(); ++i)
+        printf("_____    int cpu%d_list[]={", j);
+        for (int i = 0; i < cpuLittle_Vectors[j].size(); ++i)
         {
-            printf("%d,", cpu_Vectors[j][i]);
+            printf("%d,", cpuLittle_Vectors[j][i]);
         }
         printf("};\n");
     }
-    printf("int cpu7_list[]={");
-    for (int i = 0; i < cpu7_Vector.size(); ++i)
+    printf("_____    int cpu7_list[]={");
+    for (int i = 0; i < cpuBig_Vector.size(); ++i)
     {
-        printf("%d,", cpu7_Vector[i]);
+        printf("%d,", cpuBig_Vector[i]);
     }
     printf("};\n");
 
 
-    printf("SUM  ");
+    printf("_____    exec_time SUM  ");
     for (int j=0; j<CPU_NUMS; j++)
     {
         printf("%f  ", sums[j]);
     }
     printf("\n");
     //    printf("SUM  %f, %f, %f, %f\n", sum0, sum1, sum2, sum3);
+    std::cout<<"=============*get_queue[FINISH]=========="<<std::endl;
 }
-void WriteBinaryFile( const char* comment, bool use_vulkan_compute)
+double sumRCtime(int printF)
 {
-    char path[256];
-    if(use_vulkan_compute){
-        sprintf(path, MODEL_DIR "%s.vk.dat", comment);
-    }
-    else
+    double sum_time = 0;
+    if(printF)
+        std::cout<<"_____    load&pipe's latency: rc_times:[";
+    for (int i = 0; i < rc_times.size(); i++)
     {
-        sprintf(path, MODEL_DIR "%s.dat", comment);
+        if(printF)
+            std::cout<< rc_times[i]<<", ";
+        sum_time += rc_times[i];
     }
-    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
-
-    for (int i=0; i<CPU_NUMS; i++)
-    {
-        int n = CPU_NUMS - i - 1;
-        int cpuListSize = cpu_Vectors[n].size();
-        osData.write(reinterpret_cast<char *>(&cpuListSize), sizeof(cpuListSize));
-        osData.write(reinterpret_cast<char *>(cpu_Vectors[n].data()), cpuListSize*sizeof(cpu_Vectors[n].front()) );
-
-    }
-    int cpu7ListSize = cpu7_Vector.size();
-    osData.write(reinterpret_cast<char *>(&cpu7ListSize), sizeof(cpu7ListSize));
-    osData.write(reinterpret_cast<char *>(cpu7_Vector.data()), cpu7ListSize*sizeof(cpu7_Vector.front()) );
-    osData.close();
-}
-
-void WriteDataReaderFile( const char* comment)
-{
-    char path[256];
-    sprintf(path, MODEL_DIR "%s.br.dat", comment);
-    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
-
-    int DRListSize = DR_file_Vectors.size();
-    osData.write(reinterpret_cast<char *>(&DRListSize), sizeof(DRListSize));
-    osData.write(reinterpret_cast<char *>(DR_file_Vectors.data()), DRListSize*sizeof(DR_file_Vectors.front()) );
-
-    osData.close();
-}
-void WriteSprivMapBinaryFile( const char* comment)
-{
-    char path[256];
-    sprintf(path, MODEL_DIR "%s.m.dat", comment);
-    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
-
-    int ssSize = ncnn::spriv_map.size();
-    osData.write(reinterpret_cast<char *>(&ssSize), sizeof(ssSize));
-    for(auto &it:ncnn::spriv_map)
-    {
-        auto k = it.first;
-        osData.write(reinterpret_cast<char *>(&k), sizeof(k));
-        auto s = it.second;
-        int sSize = s.size();
-        osData.write(reinterpret_cast<char *>(&sSize), sizeof(sSize));
-        osData.write(reinterpret_cast<char *>(s.data()), sSize*sizeof(s.front()) );
-        //        cout<<it.first<<" "<<it.second<<endl;
-    }
-    osData.close();
-}
-
-void ReadBinaryFile( const char* comment, bool use_vulkan_compute)
-{
-    double start = ncnn::get_current_time();
-
-    char path[256];
-    if(use_vulkan_compute){
-        sprintf(path, MODEL_DIR "%s.vk.dat", comment);
-    }
-    else{
-        sprintf(path, MODEL_DIR "%s.dat", comment);
-    }
-    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
-    if (isData)
-    {
-        for (int i=0; i<CPU_NUMS; i++){
-            int n = CPU_NUMS - i-1;
-            int cpu_Vsize;
-            isData.read(reinterpret_cast<char *>(&cpu_Vsize),sizeof(cpu_Vsize));
-            cpu_Vectors[n].resize(cpu_Vsize);
-            isData.read(reinterpret_cast<char *>(cpu_Vectors[n].data()), cpu_Vsize *sizeof(int) );
-
-            printf("%d:{", n);
-            for(int i : cpu_Vectors[n]){
-                printf("%d,", i);
-            }
-            printf("}\n");
-        }
-        int cpu7Vsize;
-        isData.read(reinterpret_cast<char *>(&cpu7Vsize),sizeof(cpu7Vsize));
-        cpu7_Vector.resize(cpu7Vsize);
-        isData.read(reinterpret_cast<char *>(cpu7_Vector.data()), cpu7Vsize *sizeof(int) );
-
-        printf("7:{");
-        for(int i : cpu7_Vector){
-            printf("%d,", i);
-        }
-        printf("}\n");
-    }
-    else
-    {
-        printf("ERROR: Cannot open file ����.dat");
-    }
-    double e = ncnn::get_current_time();
-    printf("rfile_time %f\n", e-start);
-    isData.close();
+    if(printF)
+        std::cout<<"]"<<std::endl;
+    return sum_time;
 }
 
 int main(int argc, char** argv)
@@ -1737,9 +1445,33 @@ int main(int argc, char** argv)
     int gpu_device = -1;
     int cooling_down = 1;
 
+//    if (argc >= 2)
+//    {
+//        loop_count = atoi(argv[1]);
+//    }
+//    if (argc >= 3)
+//    {
+//        num_threads = atoi(argv[2]);
+//    }
+//    if (argc >= 4)
+//    {
+//        powersave = atoi(argv[3]);
+//    }
+//    if (argc >= 5)
+//    {
+//        gpu_device = atoi(argv[4]);
+//    }
+//    if (argc >= 6)
+//    {
+//        cooling_down = atoi(argv[5]);
+//    }
+
+    char* model_name;
+    int device_cpus = 0;
+    loop_count =1;
     if (argc >= 2)
     {
-        loop_count = atoi(argv[1]);
+        model_name = argv[1];
     }
     if (argc >= 3)
     {
@@ -1756,6 +1488,10 @@ int main(int argc, char** argv)
     if (argc >= 6)
     {
         cooling_down = atoi(argv[5]);
+    }
+    if (argc >= 7)
+    {
+        device_cpus = atoi(argv[6]);
     }
 
 #ifdef __EMSCRIPTEN__
@@ -1832,46 +1568,89 @@ int main(int argc, char** argv)
     fprintf(stderr, "powersave = %d\n", ncnn::get_cpu_powersave());
     fprintf(stderr, "gpu_device = %d\n", gpu_device);
     fprintf(stderr, "cooling_down = %d\n", (int)g_enable_cooling_down);
+    setDeviceConfig(device_cpus);
 
-
-    char model_name[] = "GoogleNet";
-    ncnn::Mat in = ncnn::Mat(227, 227, 3);
+//        char model_name[] = "alexnet";
+//        ncnn::Mat in = ncnn::Mat(227, 227, 3);
+//
+//        char model_name[] = "googlenet";
+//        ncnn::Mat in = ncnn::Mat(224, 224, 3);
+//
+//        char model_name[] = "MobileNet";
+//        ncnn::Mat in = ncnn::Mat(224, 224, 3);
+//
+//        char model_name[] = "MobileNetV2";
+//        ncnn::Mat in = ncnn::Mat(224, 224, 3);
+//
+//        char model_name[] = "resnet18";
+//        ncnn::Mat in = ncnn::Mat(224, 224, 3);
+//
+//        char model_name[] = "shufflenet";
+//        ncnn::Mat in = ncnn::Mat(224, 224, 3);
+//
+//        char model_name[] = "efficientnet_b0";
+//        ncnn::Mat in = ncnn::Mat(224, 224, 3);
+//
+//        char model_name[] = "resnet50";
+//        ncnn::Mat in = ncnn::Mat(224, 224, 3);
+//
+//        char model_name[] = "squeezenet";
+//        ncnn::Mat in = ncnn::Mat(227, 227, 3);
+//
 //        char model_name[] = "shufflenet_v2";
 //        ncnn::Mat in = ncnn::Mat(224, 224, 3);
-
+//
 //        char model_name[] = "yolov4-tiny";
 //        ncnn::Mat in = ncnn::Mat(416, 416, 3);
+//
+//        char model_name[] = "mobilenetv2_yolov3";
+//        ncnn::Mat in = ncnn::Mat(352, 352, 3);
+//
+//        char model_name[] = "mobilenet_yolo";
+//        ncnn::Mat in = ncnn::Mat(416, 416, 3);
 
-    //    char model_name[] = "mobilenetv2_yolov3";
-    //    ncnn::Mat in = ncnn::Mat(300,300,3);
-
-//    char model_name[] = "mobilenet_yolo";
-//    ncnn::Mat in = ncnn::Mat(416,416,3);
+    ncnn::Mat in = ncnn::Mat(224, 224, 3);
 
     TEST_ = 1;
-    ARM_W_TEST = 1;
-    USE_PACK_ARM = 1;
     // 1: select kernal
-    USE_KERNAL_ARM = 0;
+    USE_KERNAL_ARM = 1;
+
+    int outerLoop = 5;
+    int interLoop = 10;//10
+
+    double sss = ncnn::get_current_time();
+    int file_bin =0;
+    char tbinpath[256];
+    sprintf(tbinpath, MODEL_DIR "%s.bin", model_name);
+    FILE* tfp = fopen(tbinpath, "rb");
+    if (tfp)
+    {
+        file_bin =1;
+    }
+    std::cout<<"==========SAVE-TransWeight-TransWeightIdx-OriginWeightIdx[START]=========="<<std::endl;
+    ARM_W_TEST = 1;
+    USE_PACK_ARM = 1 - device_cpus;
     if(USE_PACK_ARM){
         if(ARM_W_TEST)
         {
-            arm_weight_file_init(model_name);
+            arm_weight_file_init(model_name); //初始化文件“%NAME%.arm.bin"，用于存储weight_transform后的weight。
         }
         else{
-            arm_weight_file_read_init(model_name);
-            ReadarmWeightDataReaderFile(model_name);
+            arm_weight_file_read_init(model_name);//打开文件“%NAME%.arm.bin"
+            ReadarmWeightDataReaderFile(model_name);//读取文件“%NAME%.arm.br.dat"得到weight_transform后的weight的索引存在arm_weight_file_seek_Vectors中。
         }
     }
-    double sss = ncnn::get_current_time();
-    benchmark(model_name, in, opt);
-    WriteDataReaderFile(model_name); //load_model(） file read 顺序
+    benchmark(model_name, in, opt); //to_arm_weight_file&arm_weight_file_seek_Vectors[weight_transform后的weight的索引]和DR_file_Vectors[表示file读取顺序(每个op在file中的起始位置)]
+    if (file_bin)
+    {
+        WriteDataReaderFile(model_name); //将DR_file_Vectors[原始weight的file读取顺序(每个op在file中的起始位置)]，存储在"%NAME%.br.dat"
+    }
     if(USE_PACK_ARM){
         if(ARM_W_TEST)
         {
             fclose(arm_weight_file);
-            WritearmWeightDataReaderFile(model_name);
-            ReadarmWeightDataReaderFile(model_name);
+            WritearmWeightDataReaderFile(model_name);//arm_weight_file_seek_Vectors[weight_transform后的weight的索引]写入“%NAME%.arm.br.dat"。
+//            ReadarmWeightDataReaderFile(model_name);//读取文件“%NAME%.arm.br.dat"得到weight_transform后的weight的索引存在arm_weight_file_seek_Vectors中。
         }
         else{
             fclose(arm_weight_file_read);
@@ -1886,60 +1665,43 @@ int main(int argc, char** argv)
         WriteSprivMapBinaryFile(model_name); //create_pipeline() spriv顺序
     }
 #endif
-
     ARM_W_TEST = 0;
     TEST_ = 0;
     if(USE_PACK_ARM){
         arm_weight_file_read_init(model_name);
         ReadarmWeightDataReaderFile(model_name);
     }
-    benchmark(model_name, in, opt);
+//    benchmark(model_name, in, opt);
+    std::cout<<"==========SAVE-TransWeight-TransWeightIdx-OriginWeightIdx[FINISH]==========\n"<<std::endl;
+    std::cout<<"==========LOOP-DECIDE--cpuLittle_Vectors[4]&cpu_Vectors7--[START]=========="<<std::endl;
 
-    for(int l=0; l<1; l++)
+    for(int l=0; l<outerLoop; l++)
     {
-        //        sleep(1);
-        double sum_time = 0;
+        benchmark_biglittle(model_name, in, opt);
+        loop_sum = sumRCtime(true);
 
-//        if(USE_PACK_ARM){
-//            arm_weight_file_read_init(model_name);
-//            ReadarmWeightDataReaderFile(model_name);
-//        }
-        get_time(model_name, in, opt);
-//        if(USE_PACK_ARM){
-//            fclose(arm_weight_file_read);
-//            for(int i=0; i < 8; i++)
-//            {
-//                fclose(arm_weight_file_reads[i]);
-//            }
-//        }
-
-        printf("rc_times_len=%zu\n", rc_times.size());
-        for (int i = 0; i < rc_times.size(); i++)
-        {
-            //        printf("%f, ", rc_times[i]);
-            sum_time += rc_times[i];
-        }
-        loop_sum = sum_time;
-        printf("sum = %f\n", sum_time);
-        get_largecore_queue(l);
-        get_queue_init();
-        //        printf("==========================-------------------------------============================================================%d\n\n", finish_f);
-        if(finish_f)
+//      loop_sum = sum_time;
+        get_largecore_queue(l); //第一次不计算      //决定finish_f：
+        if(finish_f){
+            std::cout<<"==========[FINISH_F] r&p_cpu7=[] =========="<<std::endl;
             break;
+        }
 
-//        WriteBinaryFile(model_name, use_vulkan_compute);
 
-        for (int i = 0; i < 10; i++)
+        get_queue_init(); //每个cpu队列的算子序号(根据get_time中测量的exec时间确定)
+
+        for (int i = 0; i < interLoop; i++)
         {
+            std::cout<<"================================outerLoop "<<l<<" interLoop "<<i<<"[START]============================"<<std::endl;
 
-            sum_time = 0;
+//            sum_time = 0;
 //            if(USE_PACK_ARM){
 //                arm_weight_file_read_init(model_name);
 //                ReadarmWeightDataReaderFile(model_name);
 //            }
             if(USE_PACK_ARM)
             {
-                for(int i=0; i<8; i++){
+                for(int it=0; it<8; it++){
                     fseek(arm_weight_file_reads[sched_getcpu()], 0, SEEK_SET);
                 }
             }
@@ -1952,19 +1714,13 @@ int main(int argc, char** argv)
 //                }
 //            }
 
-            printf("rc_times_len=%zu\n", rc_times.size());
-            for (int i = 0; i < rc_times.size(); i++)
-            {
-                //            printf("%f, ", rc_times[i]);
-                sum_time += rc_times[i];
-            }
-            printf("sum = %f\n", sum_time);
-            loop_sum = sum_time;
+            loop_sum = sumRCtime(true);
             get_queue();
+            std::cout<<"================================outerLoop "<<l<<" interLoop "<<i<<"[FINISH]============================"<<std::endl;
         }
 
 
-        printf("\n===================\n================\n==============\n\n");
+
 
         last_loop_sum = loop_sum;
         last_infer_time = infer_time;
@@ -1973,11 +1729,10 @@ int main(int argc, char** argv)
         {
             last_cpu_times[i] = cpu_times[i];
         }
-        WriteBinaryFile(model_name, use_vulkan_compute);
 
-        printf("\n===================\n================\n==============\n\n");
 
     }
+    WriteBinaryFile(model_name, use_vulkan_compute);
     if(USE_PACK_ARM){
         fclose(arm_weight_file_read);
         for(int i=0; i < 8; i++)
@@ -1993,6 +1748,7 @@ int main(int argc, char** argv)
     delete g_staging_vkallocator;
 #endif // NCNN_VULKAN
 
-        printf("end %f\n", ncnn::get_current_time()-sss);
+    std::cout<<"==========LOOP-DECIDE--cpuLittle_Vectors[4]&cpu_Vectors7--[FINISH]=========="<<std::endl;
+    printf("all latency: %fms\n", ncnn::get_current_time()-sss);
     return 0;
 }

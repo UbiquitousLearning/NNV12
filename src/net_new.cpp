@@ -397,10 +397,14 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, cons
 //    sleep(1);
     double start = ncnn::get_current_time();
 //    printf("ffor\n");
+//    std::cout<<"=====forward cpu[S]"<< layer_index<<"  "<<layer->name.c_str();
+//    std::cout<<blob_mats.size()<<std::endl;
     int ret = do_forward_layer(layer, blob_mats, opt);
 //    float* ptr = (float*)blob_mats[0].data;
 //    printf("%d %f\n",layer_index,  *ptr);
 //    printf("=====forward cpu%d %d %s\n", sched_getcpu(), layer_index, layer->name.c_str());
+//    printf("=====forward cpu%d %d %s\n", sched_getcpu(), layer_index, layer->name.c_str());
+//    std::cout<<"=====forward cpu"<< layer_index<<"  "<<layer->name.c_str()<<std::endl;
 //        printf("=====forward %s\n", layer->name.c_str());
 //    printf("for\n");
     double end = ncnn::get_current_time();
@@ -419,7 +423,7 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, cons
 //    fprintf(stderr, "%f\n", ends - starts);
 //    fprintf(stderr, "%.2f %.2f\n", ends - starts,  end - start);
 //    fprintf(stderr, "%s %f %f\n", layer->name.c_str(), ends - starts,  end - start);
-//    printf("+=====+forward cpu %d %s %f \n",  layer_index, layer->name.c_str(), end - start);
+//    printf("+=====+forward %d [cpu%d] %s %f \n",  layer_index, sched_getcpu(),layer->name.c_str(), end - start);
     if(save_time)
     {
         infer_starts[layer_index] = (start - save_start_time);
@@ -2178,7 +2182,6 @@ int Net::load_model(const DataReader& dr)
         int cret = layer->create_pipeline(opt1);
         double end1 = ncnn::get_current_time();
         double time1 = end1 - start1;
-//        fprintf(stderr, "             %d in pipeline time %f\n", i, time1);
         if (cret != 0)
         {
 #if NCNN_STRING
@@ -2225,7 +2228,7 @@ int Net::load_model(const DataReader& dr)
 
 int Net::load_model_dr(const DataReader& dr)
 {
-    printf("_________load_model_dr   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    load_model_dr   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     if (d->layers.empty())
     {
         NCNN_LOGE("network graph not ready");
@@ -2351,7 +2354,7 @@ int Net::load_model_dr(const char* modelpath)
 
 int Net::load_model_dr_cpu0(const DataReader& dr)
 {
-    printf("_________load_model_dr_cpu0   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    load_model_dr_cpu0   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     if (d->layers.empty())
     {
         NCNN_LOGE("network graph not ready");
@@ -2444,7 +2447,7 @@ int Net::load_model_dr_cpu0(const char* modelpath)
 
 int Net::load_model_dr_cpu1(const DataReader& dr)
 {
-    printf("_________load_model_dr_cpu1   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    load_model_dr_cpu1   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     if (d->layers.empty())
     {
         NCNN_LOGE("network graph not ready");
@@ -2564,7 +2567,7 @@ int Net::load_model_layer(const ModelBinFromDataReader& mb, int layer_idx){
 //    double time1 = end1 - start1;
 //    printf("load model layer %d %f\n", layer_idx, time1);
 
-//    printf("+=====+read cpu %d %s %f \n",  layer_idx, layer->name.c_str(), end1 - start1);
+//    printf("+=====+read %d [cpu%d] %s %f \n",  layer_idx, sched_getcpu(), layer->name.c_str(), end1 - start1);
     if(save_time)
     {
         read_starts[layer_idx] = (start1 - save_start_time);
@@ -2593,7 +2596,7 @@ int Net::load_model_layer(const ModelBinFromDataReader& mb, int layer_idx){
 
 int Net::load_model_dr_layer(const DataReader& dr, int layer_idx)
 {
-    printf("_________load_model_dr_layer   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    load_model_dr_layer   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     if (d->layers.empty())
     {
         NCNN_LOGE("network graph not ready");
@@ -2669,7 +2672,7 @@ int Net::load_model_dr_layer(const char* modelpath, int layer_idx)
 
 int Net::load_model_pipe()
 {
-    printf("_________load_model_pipe tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    load_model_pipe tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     int ret = 0;
     int layer_count = (int)d->layers.size();
 #if NCNN_VULKAN
@@ -2725,12 +2728,12 @@ int Net::load_model_pipe()
 //        printf("pipe %s\n", layer->name.c_str());
 //        printf("%d\n", i);
         int cret = layer->create_pipeline(opt1);
-//        printf("%s tid=%ld,cpu=%d\n", d->layers[i]->name.c_str(e), pthread_self(), sched_getcpu());
+//        printf("%s tid=%ld,cpu=%d\n", d->layers[i]->name.c_str(), pthread_self(), sched_getcpu());
 //        std::cout<< typeid(layer).name()<<std::endl;
 //        printf("%s\n", layer->name.c_str());
         double end1 = ncnn::get_current_time();
 
-        if(ARM_W_TEST){
+        if(USE_PACK_ARM&&ARM_W_TEST){
             //arm_weight_file_seek_save
             arm_weight_file_seek_Vectors[i] = arm_weight_file_seek_save;
 //            if(arm_weight_file_seek_Vectors[i] != arm_weight_file_seek_Vectors[i-1]){
@@ -2800,11 +2803,11 @@ int Net::load_model_pipe()
         upload_time += evk - svk;
 #endif //NCNN_VULKAN
     }
-    printf("skp_time=%f pipe_time=%f upload_time=%f\n", skp_time, pipe_time, upload_time);
+    printf("_____    skp_time=%f pipe_time=%f upload_time=%f\n", skp_time, pipe_time, upload_time);
 
     double end_p = ncnn::get_current_time();
     double time_p = end_p - start_p;
-    fprintf(stderr, "pipeline time %f\n", time_p);
+//    fprintf(stderr, "pipeline time %f\n", time_p);
     if (opt.use_local_pool_allocator)
     {
         if (opt.blob_allocator == 0)
@@ -2839,7 +2842,7 @@ int Net::load_model_pipe()
 
 int Net::load_model_pipe_cpu1()
 {
-    printf("_________load_model_pipe_cpu1 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    load_model_pipe_cpu1 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     int ret = 0;
     int layer_count = (int)d->layers.size();
 #if NCNN_VULKAN
@@ -2943,7 +2946,7 @@ int Net::load_model_pipe_cpu1()
 }
 int Net::load_model_pipe_cpu2()
 {
-    printf("_________load_model_pipe_cpu2 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    load_model_pipe_cpu2 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     int ret = 0;
     int layer_count = (int)d->layers.size();
 #if NCNN_VULKAN
@@ -3056,7 +3059,7 @@ int Net::load_model_pipe_cpu2()
 }
 int Net::load_model_pipe_cpu3()
 {
-    printf("_________load_model_pipe_cpu3 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    printf("_____    load_model_pipe_cpu3 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     int ret = 0;
     int layer_count = (int)d->layers.size();
 #if NCNN_VULKAN
@@ -3207,7 +3210,7 @@ int Net::load_pipe_layer(int layer_idx)
     int cret = layer->create_pipeline(opt1);
     double end_cp = ncnn::get_current_time();
 
-//    printf("+=====+trans cpu %d %s %f \n",  layer_idx, layer->name.c_str(), end_cp - start_cp);
+//    printf("+=====+trans %d [cpu%d] %s %f \n",  layer_idx, sched_getcpu(), layer->name.c_str(), end_cp - start_cp);
     if(save_time)
     {
         trans_starts[layer_idx] = (start_cp - save_start_time);
@@ -3988,11 +3991,11 @@ int Extractor::extract(int blob_index, Mat& feat, int type)
                     double st = ncnn::get_current_time();
                     cmd.record_download(feat_gpu, d->blob_mats[blob_index], d->opt);
                     double et = ncnn::get_current_time();
-                    printf("++++++++++++++++++++ cmd.record_download %f \n", et-st);
+//                    printf("++++++++++++++++++++ cmd.record_download %f \n", et-st);
 
                     cmd.submit_and_wait();
                     double e = ncnn::get_current_time();
-                    printf("--------------------- cmd.submit_and_wait %f\n", e-et);
+//                    printf("--------------------- cmd.submit_and_wait %f\n", e-et);
 
 #if NCNN_BENCHMARK
                     std::vector<uint64_t> results(d->net->layers().size() * 2);

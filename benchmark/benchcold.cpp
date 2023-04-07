@@ -94,7 +94,220 @@ static ncnn::VkAllocator* g_blob_vkallocator = 0;
 static ncnn::VkAllocator* g_staging_vkallocator = 0;
 #endif // NCNN_VULKAN
 
-int warmUp = 0;
+//#define CPU_NUMS 4
+//int CPU_LITTLE_s[CPU_NUMS] = {0, 1, 2, 3};
+int CPU_NUMS;// = 4;
+std::vector<int> CPU_LITTLE_s;// = {0, 1, 2, 3};
+int CPU_BIG_;// = 7;
+//std::vector<int> cpuLittle_Vectors[CPU_NUMS];
+std::vector<std::vector<int>> cpuLittle_Vectors;//(CPU_NUMS);
+std::vector<int> cpuBig_Vector;
+
+void setDeviceConfig(int device_cpus){
+    if(device_cpus == 0){
+        CPU_NUMS= 4;
+        CPU_LITTLE_s.resize(CPU_NUMS);
+        CPU_LITTLE_s = {0, 1, 2, 3};
+        CPU_BIG_ = 7;
+        cpuLittle_Vectors.resize(CPU_NUMS);
+    }
+    else if(device_cpus == 1){
+        CPU_NUMS= 2;
+        CPU_LITTLE_s.resize(CPU_NUMS);
+        CPU_LITTLE_s = {1, 2};
+        CPU_BIG_ = 0;
+        cpuLittle_Vectors.resize(CPU_NUMS);
+    }
+    else{
+        CPU_NUMS= 4;
+        CPU_LITTLE_s.resize(CPU_NUMS);
+        CPU_LITTLE_s = {0, 1, 2, 3};
+        CPU_BIG_ = 7;
+        cpuLittle_Vectors.resize(CPU_NUMS);
+    }
+}
+
+////////////////////////files//////////////////////////////////
+
+void ReadBinaryFile( const char* comment, bool use_vulkan_compute)
+{
+    double start = ncnn::get_current_time();
+
+    char path[256];
+    if(use_vulkan_compute){
+        sprintf(path, MODEL_DIR "%s.vk.dat", comment);
+    }
+    else{
+        sprintf(path, MODEL_DIR "%s.dat", comment);
+    }
+    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
+    if (isData)
+    {
+        for (int i=0; i<CPU_NUMS; i++){
+            int n = CPU_NUMS - i-1;
+            int cpu_Vsize;
+            isData.read(reinterpret_cast<char *>(&cpu_Vsize),sizeof(cpu_Vsize));
+            cpuLittle_Vectors[n].resize(cpu_Vsize);
+            isData.read(reinterpret_cast<char *>(cpuLittle_Vectors[n].data()), cpu_Vsize *sizeof(int) );
+
+            printf("%d:{", n);
+            for(int i : cpuLittle_Vectors[n]){
+                printf("%d,", i);
+            }
+            printf("}\n");
+        }
+        int cpu7Vsize;
+        isData.read(reinterpret_cast<char *>(&cpu7Vsize),sizeof(cpu7Vsize));
+        cpuBig_Vector.resize(cpu7Vsize);
+        isData.read(reinterpret_cast<char *>(cpuBig_Vector.data()), cpu7Vsize *sizeof(int) );
+
+        printf("7:{");
+        for(int i : cpuBig_Vector){
+            printf("%d,", i);
+        }
+        printf("}\n");
+    }
+    else
+    {
+        printf("ERROR: Cannot open file ����.dat");
+    }
+    double e = ncnn::get_current_time();
+    printf("rfile_time %f\n", e-start);
+    isData.close();
+}
+void WriteDataReaderFile( const char* comment)
+{
+
+    printf("DR_file_Vectors:{");
+    for(int i : DR_file_Vectors){
+        printf("%d,", i);
+    }
+    printf("}\n");
+
+    char path[256];
+    sprintf(path, MODEL_DIR "%s.br.dat", comment);
+    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+
+    int DRListSize = DR_file_Vectors.size();
+    osData.write(reinterpret_cast<char *>(&DRListSize), sizeof(DRListSize));
+    osData.write(reinterpret_cast<char *>(DR_file_Vectors.data()), DRListSize*sizeof(DR_file_Vectors.front()) );
+
+    osData.close();
+}
+void ReadDataReaderFile( const char* comment)
+{
+    char path[256];
+    sprintf(path, MODEL_DIR "%s.br.dat", comment);
+    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
+    if (isData)
+    {
+        int DRListSize;
+        isData.read(reinterpret_cast<char *>(&DRListSize),sizeof(DRListSize));
+        DR_file_Vectors.resize(DRListSize);
+        isData.read(reinterpret_cast<char *>(DR_file_Vectors.data()), DRListSize *sizeof(size_t) );
+
+    }
+    else
+    {
+        printf("ERROR: Cannot open file ����.dat");
+    }
+    isData.close();
+    printf("DR_file_Vectors:{");
+    for(int i : DR_file_Vectors){
+        printf("%d,", i);
+    }
+    printf("}\n");
+}
+void WriteSprivMapBinaryFile( const char* comment)
+{
+    char path[256];
+    sprintf(path, MODEL_DIR "%s.m.dat", comment);
+    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+
+    int ssSize = ncnn::spriv_map.size();
+    osData.write(reinterpret_cast<char *>(&ssSize), sizeof(ssSize));
+    for(auto &it:ncnn::spriv_map)
+    {
+        auto k = it.first;
+        osData.write(reinterpret_cast<char *>(&k), sizeof(k));
+        auto s = it.second;
+        int sSize = s.size();
+        osData.write(reinterpret_cast<char *>(&sSize), sizeof(sSize));
+        osData.write(reinterpret_cast<char *>(s.data()), sSize*sizeof(s.front()) );
+        //        cout<<it.first<<" "<<it.second<<endl;
+    }
+    osData.close();
+}
+void ReadSprivMapBinaryFile( const char* comment)
+{
+
+    double start = ncnn::get_current_time();
+    char path[256];
+    sprintf(path, MODEL_DIR "%s.m.dat", comment);
+    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
+    int ssSize;
+    isData.read(reinterpret_cast<char *>(&ssSize),sizeof(ssSize));
+    if (isData)
+    {
+        for(int i=0; i<ssSize; i++)
+        {
+            int key;
+            isData.read(reinterpret_cast<char*>(&key), sizeof(key));
+            int sSize;
+            isData.read(reinterpret_cast<char*>(&sSize), sizeof(sSize));
+            std::vector<uint32_t> spirv;
+            spirv.resize(sSize);
+            isData.read(reinterpret_cast<char*>(spirv.data()), sSize * sizeof(uint32_t));
+            ncnn::spriv_map.insert(std::pair<int, std::vector<uint32_t>>(key, spirv));
+            //            ncnn::spriv_vectors.push_back(spriv);
+            //            printf("%d  %d:{", key, sSize);
+            ////            for(int i : spirv){
+            ////                printf("%d,", i);
+            ////            }
+            //            printf("}\n");
+        }
+    }
+    else
+    {
+        printf("ERROR: Cannot open file ����.m.dat");
+    }
+
+    double e = ncnn::get_current_time();
+    printf("rmap_time %f\n", e-start);
+    isData.close();
+}
+
+double cold_latency;
+void WriteOutputFile(const char* comment){
+    char path[256];
+    sprintf(path, "%s, ", comment);
+
+    std::ofstream out;
+
+    char src[50];
+    strcpy(src,  comment);
+    int len = strlen(src);
+    char * last = const_cast<char*>(strrchr(src, '/') + 0);
+    if(last != NULL){
+        *(last+1)= '\0';
+        strcat(src, "output.csv");
+        out.open(src, std::ios::out | std::ios::app);  //以写入和在文件末尾添加的方式打开.txt文件，没有的话就创建该文件。
+    }else{
+        out.open("output.csv", std::ios::out | std::ios::app);  //以写入和在文件末尾添加的方式打开.txt文件，没有的话就创建该文件。
+    }
+    if (!out.is_open())
+    {
+//        printf("open file output.csv error");
+        std::cout<<"[ERROR] open file: "<<src<<std::endl;
+        return;
+    }
+    out<<path<<cold_latency<<"ms"<<std::endl;
+    std::cout<<"write file: "<<src<<std::endl;
+    out.close();
+}
+
+////////////////////////benchmark//////////////////////////////////
+
 void benchmark(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
 {
     ncnn::Mat in = _in;
@@ -231,6 +444,8 @@ void benchmark(const char* comment, const ncnn::Mat& _in, const ncnn::Option& op
     fprintf(stderr, "%20s  load param = %7.2f  load model = %7.2f  create pipeline = %7.2f  first = %7.2f  min = %7.2f  max = %7.2f  avg = %7.2f\n", comment, load_param_time, load_model_time, load_pipe_time, first_time, time_min, time_max, time_avg);
 }
 
+////////////////////////benchmark_new/////////////////////////////
+
 void inference(const ncnn::Net& net, const ncnn::Mat& in, bool print=true){
     const std::vector<const char*>& input_names = net.input_names();
     const std::vector<const char*>& output_names = net.output_names();
@@ -260,184 +475,26 @@ void inference(const ncnn::Net& net, const ncnn::Mat& in, bool print=true){
     ex.input(input_names[0], in);
     ex.extract(output_names[0], out);
 
-        float* ptr = (float*)out.data;
-        printf("%f\n", *ptr);
+    float* ptr = (float*)out.data;
+    infer_end = ncnn::get_current_time();
+    infer_time = for_cal_time;//infer_end - infer_start;
     if(print)
     {
-        infer_end = ncnn::get_current_time();
-        infer_time = infer_end - infer_start;
-        printf("for_skp_time=%f for_cal_time=%f\n", for_skp_time, for_cal_time);
-        fprintf(stderr, "infer time =  %7.2f\n", infer_time);
+        printf("_____    out[0] = %f", *ptr);
+        printf("_____    for_skp_time=%f for_cal_time=%f\t", for_skp_time, for_cal_time);
+        //        fprintf(stderr, "infer time =  %7.2f\n", infer_time);
+        printf("_____    infer time =  %7.2f\n", infer_time);
     }
 
     //    pthread_exit(&t_infer);
 
 }
 
-/////////////////////////////////////////////////////////////////////////////
-
-#define CPU_NUMS 4
-int CPU_LIST[] = {0, 1, 2, 3}; //{1,2};//
-//#define CPU_NUMS 6
-//int CPU_LIST[] = {0, 1, 2, 3, 4, 5}; //{1,2};//
-int CPU_VK_M = 7;
-pthread_cond_t param_cond_cpus[CPU_NUMS];
-std::vector<int> cpu_Vectors[CPU_NUMS];
-std::vector<int> cpu7_Vector;
-
-void ReadBinaryFile( const char* comment, bool use_vulkan_compute)
-{
-    double start = ncnn::get_current_time();
-
-    char path[256];
-    if(use_vulkan_compute){
-        sprintf(path, MODEL_DIR "%s.vk.dat", comment);
-    }
-    else{
-        sprintf(path, MODEL_DIR "%s.dat", comment);
-    }
-    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
-    if (isData)
-    {
-        for (int i=0; i<CPU_NUMS; i++){
-            int n = CPU_NUMS - i-1;
-            int cpu_Vsize;
-            isData.read(reinterpret_cast<char *>(&cpu_Vsize),sizeof(cpu_Vsize));
-            cpu_Vectors[n].resize(cpu_Vsize);
-            isData.read(reinterpret_cast<char *>(cpu_Vectors[n].data()), cpu_Vsize *sizeof(int) );
-
-            printf("%d:{", n);
-            for(int i : cpu_Vectors[n]){
-                printf("%d,", i);
-            }
-            printf("}\n");
-        }
-        int cpu7Vsize;
-        isData.read(reinterpret_cast<char *>(&cpu7Vsize),sizeof(cpu7Vsize));
-        cpu7_Vector.resize(cpu7Vsize);
-        isData.read(reinterpret_cast<char *>(cpu7_Vector.data()), cpu7Vsize *sizeof(int) );
-
-        printf("7:{");
-        for(int i : cpu7_Vector){
-            printf("%d,", i);
-        }
-        printf("}\n");
-    }
-    else
-    {
-        printf("ERROR: Cannot open file ����.dat");
-    }
-    double e = ncnn::get_current_time();
-    printf("rfile_time %f\n", e-start);
-    isData.close();
-}
-void WriteDataReaderFile( const char* comment)
-{
-
-    printf("DR_file_Vectors:{");
-    for(int i : DR_file_Vectors){
-        printf("%d,", i);
-    }
-    printf("}\n");
-
-    char path[256];
-    sprintf(path, MODEL_DIR "%s.br.dat", comment);
-    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
-
-    int DRListSize = DR_file_Vectors.size();
-    osData.write(reinterpret_cast<char *>(&DRListSize), sizeof(DRListSize));
-    osData.write(reinterpret_cast<char *>(DR_file_Vectors.data()), DRListSize*sizeof(DR_file_Vectors.front()) );
-
-    osData.close();
-}
-void ReadDataReaderFile( const char* comment)
-{
-    char path[256];
-    sprintf(path, MODEL_DIR "%s.br.dat", comment);
-    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
-    if (isData)
-    {
-        int DRListSize;
-        isData.read(reinterpret_cast<char *>(&DRListSize),sizeof(DRListSize));
-        DR_file_Vectors.resize(DRListSize);
-        isData.read(reinterpret_cast<char *>(DR_file_Vectors.data()), DRListSize *sizeof(size_t) );
-
-    }
-    else
-    {
-        printf("ERROR: Cannot open file ����.dat");
-    }
-    isData.close();
-    printf("DR_file_Vectors:{");
-    for(int i : DR_file_Vectors){
-        printf("%d,", i);
-    }
-    printf("}\n");
-}
-void WriteSprivMapBinaryFile( const char* comment)
-{
-    char path[256];
-    sprintf(path, MODEL_DIR "%s.m.dat", comment);
-    std::ofstream osData(path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
-
-    int ssSize = ncnn::spriv_map.size();
-    osData.write(reinterpret_cast<char *>(&ssSize), sizeof(ssSize));
-    for(auto &it:ncnn::spriv_map)
-    {
-        auto k = it.first;
-        osData.write(reinterpret_cast<char *>(&k), sizeof(k));
-        auto s = it.second;
-        int sSize = s.size();
-        osData.write(reinterpret_cast<char *>(&sSize), sizeof(sSize));
-        osData.write(reinterpret_cast<char *>(s.data()), sSize*sizeof(s.front()) );
-        //        cout<<it.first<<" "<<it.second<<endl;
-    }
-    osData.close();
-}
-void ReadSprivMapBinaryFile( const char* comment)
-{
-
-    double start = ncnn::get_current_time();
-    char path[256];
-    sprintf(path, MODEL_DIR "%s.m.dat", comment);
-    std::ifstream isData(path, std::ios_base::in | std::ios_base::binary);
-    int ssSize;
-    isData.read(reinterpret_cast<char *>(&ssSize),sizeof(ssSize));
-    if (isData)
-    {
-        for(int i=0; i<ssSize; i++)
-        {
-            int key;
-            isData.read(reinterpret_cast<char*>(&key), sizeof(key));
-            int sSize;
-            isData.read(reinterpret_cast<char*>(&sSize), sizeof(sSize));
-            std::vector<uint32_t> spirv;
-            spirv.resize(sSize);
-            isData.read(reinterpret_cast<char*>(spirv.data()), sSize * sizeof(uint32_t));
-            ncnn::spriv_map.insert(std::pair<int, std::vector<uint32_t>>(key, spirv));
-            //            ncnn::spriv_vectors.push_back(spriv);
-            //            printf("%d  %d:{", key, sSize);
-            ////            for(int i : spirv){
-            ////                printf("%d,", i);
-            ////            }
-            //            printf("}\n");
-        }
-    }
-    else
-    {
-        printf("ERROR: Cannot open file ����.m.dat");
-    }
-
-    double e = ncnn::get_current_time();
-    printf("rmap_time %f\n", e-start);
-    isData.close();
-}
-
 typedef struct net_cid{
     int cpu_id;
     int cpu_set;
     ncnn::Net* net;
-    ncnn::ModelBinFromDataReader* mb;
+//    ncnn::ModelBinFromDataReader* mb;
 }net_cid;
 typedef struct net_cid_f{
     int cpu_id;
@@ -450,14 +507,6 @@ void *thread_list(void *args){
 
     auto *net_cid_ = (net_cid*)args;
 
-//    pthread_mutex_lock(&param_lock);
-//    while (param_finish_1 == 0 ){
-//        //        printf("=================\n");
-//        pthread_cond_wait(&param_cond_cpus[net_cid_->cpu_id], &param_lock);
-//        //        sleep(0);
-//    }
-//    pthread_mutex_unlock(&param_lock);
-
 #ifdef __CPU_MASK__
     cpu_set_t mask;  //CPU�˵ļ���
     CPU_ZERO(&mask);    //�ÿ�
@@ -467,17 +516,24 @@ void *thread_list(void *args){
         printf("warning: could not set CPU affinity, continuing...\n");
     }
 #endif
-    printf("__________t%d_cpu%d    tid=%ld,cpu=%d\n",net_cid_->cpu_id, net_cid_->cpu_set, pthread_self(), sched_getcpu());
+//    printf("__________t%d_cpu%d    tid=%ld,cpu=%d\n",net_cid_->cpu_id, net_cid_->cpu_set, pthread_self(), sched_getcpu());
+    printf("_____    Thread_load&pipe_(cpu%d)([%d])    tid=%ld,cpu=%d\n",net_cid_->cpu_set,net_cid_->cpu_id,  pthread_self(), sched_getcpu());
     double start_time = ncnn::get_current_time();
 
+    DataReaderFromEmpty dr;
+    ncnn::ModelBinFromDataReader mb(dr);//get_dr(fp, net));
 
     //        auto net=net_cid_->net;
-    int list_len = cpu_Vectors[net_cid_->cpu_id].size();
+    int list_len = cpuLittle_Vectors[net_cid_->cpu_id].size();
     double cal_time= 0;
     for(int ii=0; ii<list_len; ii++){
-        int i = cpu_Vectors[net_cid_->cpu_id][ii];
+        int i = cpuLittle_Vectors[net_cid_->cpu_id][ii];
         double s = ncnn::get_current_time();
-        net_cid_->net->load_model_layer(*net_cid_->mb, i);
+        net_cid_->net->load_model_layer(mb, i);
+        if(USE_PACK_ARM)
+        {
+            fseek(arm_weight_file_reads[sched_getcpu()], arm_weight_file_seek_Vectors[i - 1], SEEK_SET);
+        }
         net_cid_->net->load_pipe_layer(i);
         double e = ncnn::get_current_time();
 
@@ -491,7 +547,8 @@ void *thread_list(void *args){
         syn_act(infer_syn, i);
     }
     double end_time = ncnn::get_current_time();
-    printf("\n==============================================================================================list_cpu%d_time = %f %f\n", sched_getcpu(), end_time - start_time, cal_time);
+//    printf("\n==============================================================================================list_cpu%d_time = %f %f\n", sched_getcpu(), end_time - start_time, cal_time);
+    printf("_____    Thread_load&pipe_(cpu%d)([%d])[FINISH]        time = %f %f\n", net_cid_->cpu_set,sched_getcpu(), end_time - start_time, cal_time);
 
     return 0;
 }
@@ -518,15 +575,16 @@ void * thread_list_file(void *args){
 //    fseek(vk_weight_file_read_,  0, SEEK_SET);
 //#endif
 
-    printf("__________t%d_cpu%d    tid=%ld,cpu=%d\n",net_cid_->cpu_id, net_cid_->cpu_set, pthread_self(), sched_getcpu());
+//    printf("__________t%d_cpu%d    tid=%ld,cpu=%d\n",net_cid_->cpu_id, net_cid_->cpu_set, pthread_self(), sched_getcpu());
+    printf("_____    Thread_load&pipe_(cpu%d)([%d])    tid=%ld,cpu=%d\n",net_cid_->cpu_set,net_cid_->cpu_id,  pthread_self(), sched_getcpu());
     double start_time = ncnn::get_current_time();
 
 
     //        auto net=net_cid_->net;
-    int list_len = cpu_Vectors[net_cid_->cpu_id].size();
+    int list_len = cpuLittle_Vectors[net_cid_->cpu_id].size();
     double cal_time= 0;
     for(int ii=0; ii<list_len; ii++){
-        int i = cpu_Vectors[net_cid_->cpu_id][ii];
+        int i = cpuLittle_Vectors[net_cid_->cpu_id][ii];
         double s = ncnn::get_current_time();
 
         fseek(fp_,  DR_file_Vectors[i], SEEK_SET);
@@ -552,7 +610,8 @@ void * thread_list_file(void *args){
         syn_act(infer_syn, i);
     }
     double end_time = ncnn::get_current_time();
-    printf("\n==============================================================================================list_cpu%d_time = %f %f\n", sched_getcpu(), end_time - start_time, cal_time);
+//    printf("\n==============================================================================================list_cpu%d_time = %f %f\n", sched_getcpu(), end_time - start_time, cal_time);
+    printf("_____    Thread_load&pipe_(cpu%d)([%d])[FINISH]        time = %f %f\n", net_cid_->cpu_set,sched_getcpu(), end_time - start_time, cal_time);
 
     if (fp_)
     {
@@ -561,15 +620,16 @@ void * thread_list_file(void *args){
     return 0;
 }
 
-void cold_boot_empty(ncnn::Net& net)
+void cold_boot_empty(ncnn::Net& net, const ncnn::Mat& in)
 {
+    printf("_____    Thread_exec_(cpu4567)     tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
     DataReaderFromEmpty dr;
     ncnn::ModelBinFromDataReader mb(dr);//get_dr(fp, net));
 
     std::thread th[CPU_NUMS];
     net_cid net_cids[CPU_NUMS];
     for(int i = 0; i<CPU_NUMS; i++){
-        net_cids[i] =  {i, CPU_LIST[i], &net, &mb};
+        net_cids[i] =  {i, CPU_LITTLE_s[i], &net};//, &mb};
         th[i] = std::thread(thread_list, (void*)&net_cids[i]);
     }
 //    net_cid net_cid0 =  {0, 1, &net, &mb};
@@ -585,11 +645,15 @@ void cold_boot_empty(ncnn::Net& net)
     syn_act(read_syn, 2);
     net.load_pipe_layer(1);
     syn_act(infer_syn, 1);
-    int list_len = cpu7_Vector.size();
+    int list_len = cpuBig_Vector.size();
     double cal_time= 0;
     for(int ii=0; ii<list_len; ii++){
-        int i = cpu7_Vector[ii];
+        int i = cpuBig_Vector[ii];
         net.load_model_layer(mb, i);
+        if(USE_PACK_ARM)
+        {
+            fseek(arm_weight_file_reads[sched_getcpu()], arm_weight_file_seek_Vectors[i - 1], SEEK_SET);
+        }
         net.load_pipe_layer(i);
         syn_act(infer_syn, i);
     }
@@ -598,9 +662,10 @@ void cold_boot_empty(ncnn::Net& net)
 //        th[i].join();
 //    }
     double start_time_inf = ncnn::get_current_time();
-    inference(net, ncnn::Mat(227, 227, 3), true);
+    inference(net, in, true);
     double end_time = ncnn::get_current_time();
-    printf("\n===================================================================================================rc=%f infer=%f \n", start_time_inf-s, end_time - start_time_inf);
+    printf("_____    Thread_exec_(cpu4567)[FINISH]     rc=%f infer=%f \n", start_time_inf-s, end_time - start_time_inf);
+//    printf("\n===================================================================================================rc=%f infer=%f \n", start_time_inf-s, end_time - start_time_inf);
 //    t_0.join();
 //    t_1.join();
     for(int i = 0; i<CPU_NUMS; i++){
@@ -609,6 +674,7 @@ void cold_boot_empty(ncnn::Net& net)
 }
 
 void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
+    printf("_____    Thread_exec_(cpu4567)     tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
     ncnn::DataReaderFromStdio dr(fp);
     ncnn::ModelBinFromDataReader mb(dr);
 
@@ -620,7 +686,7 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
     for(int i = 0; i<CPU_NUMS; i++){
         fps[i] = fopen(globalbinpath, "rb");
         fseek(fps[i],0,SEEK_SET);
-        net_cids[i] =  {i, CPU_LIST[i], &net};//, &mb, fp};
+        net_cids[i] =  {i, CPU_LITTLE_s[i], &net};//, &mb, fp};
         th[i] = std::thread(thread_list_file, (void*)&net_cids[i]);
     }
 
@@ -642,10 +708,10 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
 //#endif
     net.upload_model_layer(1);
     syn_act(infer_syn, 1);
-    int list_len = cpu7_Vector.size();
+    int list_len = cpuBig_Vector.size();
     double cal_time= 0;
     for(int ii=0; ii<list_len; ii++){
-        int i = cpu7_Vector[ii];
+        int i = cpuBig_Vector[ii];
         fseek(fp, DR_file_Vectors[i], SEEK_SET);
         net.load_model_layer(mb, i);
         if(USE_PACK_ARM)
@@ -667,7 +733,8 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
     double start_time_inf = ncnn::get_current_time();
     inference(net, in, true);
     double end_time = ncnn::get_current_time();
-    printf("\n===================================================================================================pipeline=%f infer=%f\n", start_time_inf-s, end_time - start_time_inf);
+    printf("_____    Thread_exec_(cpu4567)[FINISH]     rc=%f infer=%f \n", start_time_inf-s, end_time - start_time_inf);
+//    printf("\n===================================================================================================pipeline=%f infer=%f\n", start_time_inf-s, end_time - start_time_inf);
     //            t_0.join();
     //            t_1.join();
     for(int i = 0; i<CPU_NUMS; i++){
@@ -679,6 +746,7 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
     }
 }
 
+int warmUp = 1;
 void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
 {
     ncnn::Mat in = _in;
@@ -730,90 +798,95 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
 
 
 
-    printf("start %f\n", ncnn::get_current_time()-start_t);
-    printf("\n==s====================\n");
-    printf("\n=========s=============\n");
+    printf("_____    Thread_exec_(cpu4567)     start %f\n", ncnn::get_current_time()-start_t);
+//    printf("\n==s====================\n");
+//    printf("\n=========s=============\n");
     double s_time = ncnn::get_current_time();
 
-    warmUp =0;
-        if(warmUp)
+//    warmUp =0;
+    if(warmUp) //Warm up SoC to max the SoC CPU's freq.
+    {
+        ncnn::Net net_in;
+        net_in.opt = net.opt;
+        char tparampath[256];
+        sprintf(tparampath, MODEL_DIR "mobilenet_v3.param"); //GoogleNet  //AlexNet
+        char tbinpath[256];
+        sprintf(tbinpath, MODEL_DIR "mobilenet_v3.bin");
+        net_in.load_param(gloableparampath);
+        int open = net_in.load_model_dr(globalbinpath);
+        if (open < 0)
         {
-            ncnn::Net net_in;
-            net_in.opt = net.opt;
-            char tparampath[256];
-            sprintf(tparampath, MODEL_DIR "mobilenet_v3.param"); //GoogleNet  //AlexNet
-            char tbinpath[256];
-            sprintf(tbinpath, MODEL_DIR "mobilenet_v3.bin");
-            net_in.load_param(gloableparampath);
-            int open = net_in.load_model_dr(globalbinpath);
-            if (open < 0)
-            {
-                printf("load file files\n");
-                DataReaderFromEmpty dr;
-                net_in.load_model_dr(dr);
-            }
-            net_in.load_model_pipe();
-            //    printf("load p end %f\n", ncnn::get_current_time()-start_t);
-            for (int i = 0; i < 30; i++)
-            {
-                ncnn::Mat top;
-                //        conv7x7s2_pack1to4_neon(ncnn::Mat(227, 227, 3), top, ncnn::Mat(7,7, 3), ncnn::Mat(7,7, 3), net->opt);
-                inference(net_in, ncnn::Mat(227, 227, 3), false);
-                //        ncnn::do_forward_layer
-
-                //        printf("infer p end %f\n", ncnn::get_current_time()-start_t);
-            }
-            ncnn::current_layer_idx_f2p = 0;
-            ncnn::current_layer_idx_p2i = 0;
-            infer_start = 0;
-            pipe_start = 0;
-            for_cal_time = 0;
-            for_skp_time = 0;
-            read_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
-            create_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
-            infer_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
+//            printf("_____    load file files\n");
+            DataReaderFromEmpty dr;
+            net_in.load_model_dr(dr);
         }
-        clear_times_save();
-        resize_times_save(net.layers().size());
-
-        printf("param finish_____________\n");
-        if(opt.use_vulkan_compute)
+        net_in.load_model_pipe();
+        //    printf("load p end %f\n", ncnn::get_current_time()-start_t);
+        for (int i = 0; i < 30; i++)
         {
+            ncnn::Mat top;
+            //        conv7x7s2_pack1to4_neon(ncnn::Mat(227, 227, 3), top, ncnn::Mat(7,7, 3), ncnn::Mat(7,7, 3), net->opt);
+            inference(net_in, ncnn::Mat(227, 227, 3), false);
+            //        ncnn::do_forward_layer
+
+            //        printf("infer p end %f\n", ncnn::get_current_time()-start_t);
+        }
+        ncnn::current_layer_idx_f2p = 0;
+        ncnn::current_layer_idx_p2i = 0;
+        infer_start = 0;
+        pipe_start = 0;
+        for_cal_time = 0;
+        for_skp_time = 0;
+        read_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
+        create_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
+        infer_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
+    }
+    clear_times_save();
+    resize_times_save(net.layers().size());
+
+    //        printf("param finish_____________\n");
+    printf("_____    Thread_exec_(cpu4567)     tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
+    if(opt.use_vulkan_compute)
+    {
 #ifdef __CPU_MASK__
-            cpu_set_t mask;                                      //CPU�˵ļ���
-            CPU_ZERO(&mask);                                     //�ÿ�
-            CPU_SET(CPU_VK_M, &mask);                            //�����׺���ֵ
-            if (sched_setaffinity(0, sizeof(mask), &mask) == -1) //�����߳�CPU�׺���
-            {
-                printf("warning: could not set CPU affinity, continuing...\n");
-            }
+        cpu_set_t mask;                                      //CPU�˵ļ���
+        CPU_ZERO(&mask);                                     //�ÿ�
+        CPU_SET(CPU_BIG_, &mask);                            //�����׺���ֵ
+        if (sched_setaffinity(0, sizeof(mask), &mask) == -1) //�����߳�CPU�׺���
+        {
+            printf("warning: could not set CPU affinity, continuing...\n");
+        }
 #endif
-        }
-        printf("__________t_cpu4567 tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
-        double start_time = ncnn::get_current_time();
-        save_start_time = ncnn::get_current_time();
-        //read
-        printf("load file %s\n", globalbinpath);
-        FILE* fp = fopen(globalbinpath, "rb");
-        if (!fp)
+    }
+    //        printf("__________t_cpu4567 tid=%ld,cpu=%d\n", pthread_self(), sched_getcpu());
+    double start_time = ncnn::get_current_time();
+    save_start_time = ncnn::get_current_time();
+    //read
+    printf("_____    load file %s\n", globalbinpath);
+    FILE* fp = fopen(globalbinpath, "rb");
+    if (!fp)
+    {
+        NCNN_LOGE("fopen %s failed", globalbinpath);
+        cold_boot_empty(net, in);
+    }
+    else
+    {
+        if (net.layers().empty())
         {
-            NCNN_LOGE("fopen %s failed", globalbinpath);
-            cold_boot_empty(net);
+            NCNN_LOGE("network graph not ready");
         }
-        else
-        {
-            if (net.layers().empty())
-            {
-                NCNN_LOGE("network graph not ready");
-            }
-            cold_boot_file(net, fp, in);
-        }
+        cold_boot_file(net, fp, in);
+    }
 
-    printf("_____________________________________________________________________________total time %f\n", ncnn::get_current_time()-start_time);
+//    printf("_____________________________________________________________________________total time %f\n", ncnn::get_current_time()-start_time);
+//
+//    printf("_____________________________________________________________________________total time + warmup %f\n", ncnn::get_current_time()-s_time);
+//    printf("_____________________________________________________________________________real total time %f\n", ncnn::get_current_time()-start_t);
+//    printf("==============================================\n");
 
-    printf("_____________________________________________________________________________total time + warmup %f\n", ncnn::get_current_time()-s_time);
-    printf("_____________________________________________________________________________real total time %f\n", ncnn::get_current_time()-start_t);
-    printf("==============================================\n");
+    cold_latency =  ncnn::get_current_time()-start_time;
+    printf("=============benchmark_new[FINISH]___total_time=%f=====total_time_+_warmup=%f___real_total_time=%f ==========\n", cold_latency, ncnn::get_current_time()-s_time, ncnn::get_current_time()-start_t);
+
     for(int ii=0; ii<0;ii++)
     {
         const std::vector<const char*>& input_names__ = net.input_names();
@@ -834,52 +907,11 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
         infer_time = infer_end - infer_start;
         fprintf(stderr, "2d infer time =  %7.2f\n", infer_time);
     }
-
-//    printf("read_starts =[");//, read_starts.size());
-//    for (float rs : read_starts)
-//    {
-//        printf("%f,", rs);
-//    }
-//    printf("]\n\n");
-//    printf("read_ends =[");//, read_ends.size());
-//    for (float rs : read_ends)
-//    {
-//        printf("%f,", rs);
-//    }
-//    printf("]\n\n");
-//    printf("trans_starts =[");//, trans_starts.size());
-//    for (float rs : trans_starts)
-//    {
-//        printf("%f,", rs);
-//    }
-//    printf("]\n\n");
-//    printf("trans_ends =[");//, trans_ends.size());
-//    for (float rs : trans_ends)
-//    {
-//        printf("%f,", rs);
-//    }
-//    printf("]\n\n");
-//    printf("infer_starts =[");//, infer_starts.size());
-//    for (float rs : infer_starts)
-//    {
-//        printf("%f,", rs);
-//    }
-//    printf("]\n\n");
-//    printf("infer_ends =[");//, infer_ends.size());
-//    for (float rs : infer_ends)
-//    {
-//        printf("%f,", rs);
-//    }
-//    printf("]\n\n");
-
-//        pthread_exit(NULL);
-
 }
 
 
 int main(int argc, char** argv)
 {
-
     start_t = ncnn::get_current_time();
     int loop_count = 4;
     int num_threads = ncnn::get_cpu_count();
@@ -887,9 +919,33 @@ int main(int argc, char** argv)
     int gpu_device = -1;
     int cooling_down = 1;
 
+//    if (argc >= 2)
+//    {
+//        loop_count = atoi(argv[1]);
+//    }
+//    if (argc >= 3)
+//    {
+//        num_threads = atoi(argv[2]);
+//    }
+//    if (argc >= 4)
+//    {
+//        powersave = atoi(argv[3]);
+//    }
+//    if (argc >= 5)
+//    {
+//        gpu_device = atoi(argv[4]);
+//    }
+//    if (argc >= 6)
+//    {
+//        cooling_down = atoi(argv[5]);
+//    }
+
+    char* model_name;
+    int device_cpus = 0;
+    loop_count =1;
     if (argc >= 2)
     {
-        loop_count = atoi(argv[1]);
+        model_name = argv[1];
     }
     if (argc >= 3)
     {
@@ -906,6 +962,10 @@ int main(int argc, char** argv)
     if (argc >= 6)
     {
         cooling_down = atoi(argv[5]);
+    }
+    if (argc >= 7)
+    {
+        device_cpus = atoi(argv[6]);
     }
 
 #ifdef __EMSCRIPTEN__
@@ -986,13 +1046,15 @@ int main(int argc, char** argv)
     fprintf(stderr, "powersave = %d\n", ncnn::get_cpu_powersave());
     fprintf(stderr, "gpu_device = %d\n", gpu_device);
     fprintf(stderr, "cooling_down = %d\n", (int)g_enable_cooling_down);
+    setDeviceConfig(device_cpus);
 
+    ncnn::Mat in = ncnn::Mat(224, 224, 3);
 
-//    char model_name[] = "AlexNet";
+//    char model_name[] = "alexnet";
 //    ncnn::Mat in = ncnn::Mat(227, 227, 3);
 
-    char model_name[] = "GoogleNet";
-    ncnn::Mat in = ncnn::Mat(227, 227, 3);
+//    char model_name[] = "googlenet";
+//    ncnn::Mat in = ncnn::Mat(224, 224, 3);
 
 //    char model_name[] = "MobileNet";
 //    ncnn::Mat in = ncnn::Mat(224, 224, 3);
@@ -1018,6 +1080,9 @@ int main(int argc, char** argv)
 //    char model_name[] = "shufflenet_v2";
 //    ncnn::Mat in = ncnn::Mat(224, 224, 3);
 
+//    char model_name[] = "yolov4-tiny";
+//    ncnn::Mat in = ncnn::Mat(416, 416, 3);
+
 //    char model_name[] = "mobilenetv2_yolov3";
 //    ncnn::Mat in = ncnn::Mat(352, 352, 3);
 
@@ -1031,13 +1096,21 @@ int main(int argc, char** argv)
     }
     ReadBinaryFile(model_name, use_vulkan_compute);//cpu����˳��
 
+    int file_bin =0;
+    char tbinpath[256];
+    sprintf(tbinpath, MODEL_DIR "%s.bin", model_name);
+    FILE* tfp = fopen(tbinpath, "rb");
+    if (tfp)
+    {
+        file_bin =1;
+    }
 
     //ARM
     // 0 1: run
     // 1 1: test
     // 0 0: unable pack
     ARM_W_TEST = 0;
-    USE_PACK_ARM = 1;
+    USE_PACK_ARM = 1 - device_cpus;
     // 1: select kernal
     USE_KERNAL_ARM = 1;
     // 1: pipeline
@@ -1074,105 +1147,12 @@ int main(int argc, char** argv)
             }
         }
     }
-
-////       benchmark("AlexNet", ncnn::Mat(227, 227, 3), opt);
-////       benchmark("GoogleNet", ncnn::Mat(227, 227, 3), opt);
-////       WriteSprivMapBinaryFile("GoogleNet");
-//       ReadSprivMapBinaryFile("GoogleNet");
-////       WriteSprivBinaryFile("GoogleNet");
-////       ReadSprivBinaryFile("GoogleNet");
-//       benchmark("GoogleNet", ncnn::Mat(227, 227, 3), opt);
-
-
-
-//       benchmark("MobileNet", ncnn::Mat(224, 224, 3), opt);
-//       benchmark("MobileNetV2", ncnn::Mat(224, 224, 3), opt);
-//       benchmark("resnet18", ncnn::Mat(224, 224, 3), opt);
-//       benchmark("shufflenet", ncnn::Mat(224, 224, 3), opt);
-//       benchmark("efficientnet_b0", ncnn::Mat(224, 224, 3), opt);
-//       benchmark("resnet50", ncnn::Mat(224, 224, 3), opt);
-//       benchmark("mobilenet_int8", ncnn::Mat(224, 224, 3), opt);
-//       benchmark("googlenet_int8", ncnn::Mat(224, 224, 3), opt);
-
-    // run
-//        benchmark_new("AlexNet", ncnn::Mat(227, 227, 3), opt);
-//        benchmark_new("GoogleNet", ncnn::Mat(227, 227, 3), opt);
-//        benchmark_new("MobileNet", ncnn::Mat(224, 224, 3), opt);
-//        benchmark_new("MobileNet", ncnn::Mat(224, 224, 3), opt);
-//        benchmark_new("MobileNetV2", ncnn::Mat(224, 224, 3), opt);
-//        benchmark_new("resnet18", ncnn::Mat(224, 224, 3), opt);
-
-    //    benchmark_new("resnet18_int8", ncnn::Mat(224, 224, 3), opt);
-    //    sleep(50);
-    //    sleep(100);
-
-    //    benchmark("squeezenet", ncnn::Mat(227, 227, 3), opt);
-    //
-    //    benchmark("squeezenet_int8", ncnn::Mat(227, 227, 3), opt);
-    //
-//    benchmark("mobilenet", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("mobilenet_int8", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("mobilenet_v2", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    // benchmark("mobilenet_v2_int8", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("mobilenet_v3", ncnn::Mat(224, 224, 3), opt);
-    //
-//        benchmark("shufflenet", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("shufflenet_v2", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("mnasnet", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("proxylessnasnet", ncnn::Mat(224, 224, 3), opt);
-    //
-//        benchmark("efficientnet_b0", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("efficientnetv2_b0", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("regnety_400m", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("blazeface", ncnn::Mat(128, 128, 3), opt);
-    //
-    //    benchmark("googlenet", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("googlenet_int8", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("resnet18", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("resnet18_int8", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("alexnet", ncnn::Mat(227, 227, 3), opt);
-    //
-    //    benchmark("vgg16", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("vgg16_int8", ncnn::Mat(224, 224, 3), opt);
-    //
-//        benchmark("resnet50", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("resnet50_int8", ncnn::Mat(224, 224, 3), opt);
-    //
-    //    benchmark("squeezenet_ssd", ncnn::Mat(300, 300, 3), opt);
-    //
-    //    benchmark("squeezenet_ssd_int8", ncnn::Mat(300, 300, 3), opt);
-    //
-    //    benchmark("mobilenet_ssd", ncnn::Mat(300, 300, 3), opt);
-    //
-    //    benchmark("mobilenet_ssd_int8", ncnn::Mat(300, 300, 3), opt);
-    //
-    //    benchmark("mobilenet_yolo", ncnn::Mat(416, 416, 3), opt);
-    //
-    //    benchmark("mobilenetv2_yolov3", ncnn::Mat(352, 352, 3), opt);
-    //
-    //    benchmark("yolov4-tiny", ncnn::Mat(416, 416, 3), opt);
+    WriteOutputFile(model_name);
 
 #if NCNN_VULKAN
     delete g_blob_vkallocator;
     delete g_staging_vkallocator;
 #endif // NCNN_VULKAN
 
-//    printf("end %f\n", ncnn::get_current_time()-start_t);
     return 0;
 }

@@ -2,6 +2,7 @@
 // Created by 30500 on 2022/2/14 0014.
 //
 
+#include <iostream>
 #include "file_arm.h"
 FILE* arm_weight_file;
 FILE* arm_weight_file_read;
@@ -19,11 +20,13 @@ void arm_weight_file_init( const char* comment ){
     char path[256];
     sprintf(path,  "" "%s.arm.bin", comment);
     arm_weight_file = fopen(path, "wb");
+    std::cout<<"[WRITE]["<<path<<"][file]arm_weight_file"<<std::endl;
 }
 
 void arm_weight_file_read_init( const char* comment ){
     char path[256];
     sprintf(path,  "" "%s.arm.bin", comment);
+    std::cout<<"[READ-]["<<path<<"][file]arm_weight_file_reads[0~8]"<<std::endl;
     arm_weight_file_read = fopen(path, "rb");
     for(int i=0; i < 8; i++){
         //    for(FILE* fs: arm_weight_file_reads){
@@ -39,11 +42,11 @@ void WritearmWeightDataReaderFile( const char* comment)
     sprintf(seek_path,  "" "%s.arm.br.dat", comment);
     //    arm_weight_file_seek = fopen(seek_path, "wb");
 
-    printf("%zu arm_weight_file_seek_Vectors:{", arm_weight_file_seek_Vectors.size());
+    std::cout<<"[WRITE]["<<seek_path<<"]arm_weight_file_seek_Vectors(len:"<<arm_weight_file_seek_Vectors.size()<<"):{";
     for(int i : arm_weight_file_seek_Vectors){
         printf("%d,", i);
     }
-    printf("}\n");
+    std::cout<<"}"<<std::endl;
 
     std::ofstream osData(seek_path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
 
@@ -72,9 +75,9 @@ void ReadarmWeightDataReaderFile( const char* comment)
         printf("ERROR: Cannot open file 数据.dat");
     }
     isData.close();
-    printf("arm_weight_file_seek_Vectors:{");
+    std::cout<<"[READ-]["<<path<<"]arm_weight_file_seek_Vectors(len:"<<arm_weight_file_seek_Vectors.size()<<"):{";
     for(int i : arm_weight_file_seek_Vectors){
         printf("%d,", i);
     }
-    printf("}\n");
+    std::cout<<"}"<<std::endl;
 }
