@@ -12,29 +12,34 @@ The following instructions are executed on a PC.
 
 2. Connect Android Phone with PC by adb. 
 
-3. Build and push models to Android Phone.
+3. Clone this repo.
+
+    ```shell
+    $ git clone --recursive https://github.com/Yeeethan00/NNV12.git 
+    $ cd ./NNV12
+    ```
+
+4. Build and push models to Android Phone.
 
     ```shell
     $ cd ./scripts
     $ chmod +x ./init_arm64.sh
     $ ./init_arm64.sh
     ```
-
-4. Deploy models.
+5. Deploy models.
 
     ```shell
     $ chmod +x ./deployed_arm64.sh
     $ ./deployed_arm64.sh
     ```
 
-5. Run NNV12.
+6. Run NNV12.
 
     ```shell
     $ chmod +x ./run_arm64.sh
     $ ./run_arm64.sh
     ```
-
-6. The result of latency is shown in "./scripts/output.csv". 
+7. The result of latency is shown in "./scripts/output.csv". 
 
 There are results get from Meizu 16T.
    
@@ -57,13 +62,21 @@ There are results get from Meizu 16T.
 The following instructions are executed on a Jetson Nano.
 
 1. Install Vulkan and CMake.
+
     ```shell
     $ cd ./scripts
     $ chmod +x ./install_jetson.sh
     $ ./install_jetson.sh
     ```
    
-2. Build project.
+2. Clone this repo.
+
+    ```shell
+    $ git clone --recursive https://github.com/Yeeethan00/NNV12.git 
+    $ cd ./NNV12
+    ```   
+
+3. Build project.
 
     ```shell
     $ chmod +x ./init_jetson.sh
