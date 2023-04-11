@@ -6,11 +6,20 @@ This repo is based on [ncnn](https://github.com/Tencent/ncnn/).
 ---
 ## Benchmark on Android Phone CPU
 
-The following instructions are executed on a PC. 
+The following instructions are executed on a PC with an operating system of Ubuntu 22.04.
 
 1. Install NDK and adb. 
 
-2. Connect Android Phone with PC by adb. 
+    ```shell
+    $ mkdir ./NDK && cd ./NDK
+    $ wget https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip
+    $ unzip ./android-ndk-r21e-linux-x86_64.zip
+    $ echo export ANDROID_NDK=$HOME/NDK/android-ndk-r21e >> ~/.bashrc
+    $ source ~/.bashrc
+    $ sudo apt install adb
+    ```
+
+2. Connect PC and android phone via USB cable. 
 
 3. Clone this repo.
 
@@ -19,7 +28,7 @@ The following instructions are executed on a PC.
     $ cd ./NNV12
     ```
 
-4. Build and push models to Android Phone.
+4. Build and push models to android phone.
 
     ```shell
     $ cd ./scripts
@@ -41,7 +50,7 @@ The following instructions are executed on a PC.
     ```
 7. The result of latency is shown in "./scripts/output.csv". 
 
-There are results get from Meizu 16T.
+There are results get from Meizu 16T (Snapdragon 855).
    
    | Model           | latency(ms) | 
    |-----------------|-------------|
