@@ -1,6 +1,7 @@
 # NNV12
 
-This repo is the official implementation of ["Boosting DNN Cold Inference on Edge Devices"](https://arxiv.org/abs/2206.07446). 
+[//]: # (This repo is the official implementation of ["Boosting DNN Cold Inference on Edge Devices"]&#40;https://arxiv.org/abs/2206.07446&#41;. )
+This repo is a DNN framework for Boosting DNN Cold Inference. 
 This repo is based on [ncnn](https://github.com/Tencent/ncnn/). 
 
 ---
