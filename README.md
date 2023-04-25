@@ -109,7 +109,7 @@ The following instructions are executed on a Jetson Nano.
     $ ./run_jetson.sh
     ```
 
-6. The result of latency is shown in "./build/benchmark/output.csv". 
+6. The result of latency is shown in "./scripts/output.csv". 
 
 There are results get from Jetson Nano.
 
