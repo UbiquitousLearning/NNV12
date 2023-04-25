@@ -53,18 +53,20 @@ The following instructions are executed on a PC with an operating system of Ubun
 
 There are results get from Meizu 16T (Snapdragon 855).
    
-   | Model           | latency(ms) | 
-   |-----------------|-------------|
-   | alexnet         | 120.123     | 
-   | googlenet       | 45.401      |
-   | mobilenet       | 25.084      | 
-   | mobilenet_v2    | 24.346      |
-   | resnet18        | 53.672      | 
-   | resnet50        | 103.136     |
-   | shufflenet      | 11.576      | 
-   | shufflenet_v2   | 14.033      |
-   | squeezenet      | 12.139      | 
-   | efficientnet_b0 | 25.235      |
+   | Model              | latency(ms) | 
+   |--------------------|-------------|
+   | alexnet            | 120.123     | 
+   | googlenet          | 56.401      |
+   | mobilenet          | 22.084      | 
+   | mobilenet_v2       | 25.346      |
+   | resnet18           | 59.672      | 
+   | resnet50           | 103.136     |
+   | shufflenet         | 13.576      | 
+   | shufflenet_v2      | 12.033      |
+   | squeezenet         | 14.139      | 
+   | efficientnet_b0    | 27.235      |
+   | mobilenetv2_yolov3 | 25.258      |
+   | mobilenet_yolo     | 25.953      |
 
 ---
 ## Benchmark on Jetson Nano GPU
@@ -111,15 +113,17 @@ The following instructions are executed on a Jetson Nano.
 
 There are results get from Jetson Nano.
 
-   | Model           | latency(ms) | 
-   |-----------------|-------------|
-   | alexnet         | 169.942     | 
-   | googlenet       | 94.181      |
-   | mobilenet       | 50.916      | 
-   | mobilenet_v2    | 63.992      |
-   | resnet18        | 87.460      | 
-   | resnet50        | 186.534     |
-   | shufflenet      | 40.941      | 
-   | shufflenet_v2   | 45.309      |
-   | squeezenet      | 53.929      | 
-   | efficientnet_b0 | 107.834     |
+   | Model              | latency(ms) | 
+   |--------------------|-------------|
+   | alexnet            | 262.942     | 
+   | googlenet          | 161.181     |
+   | mobilenet          | 86.916      | 
+   | mobilenet_v2       | 102.992     |
+   | resnet18           | 183.460     | 
+   | resnet50           | 295.534     |
+   | shufflenet         | 61.941      | 
+   | shufflenet_v2      | 75.309      |
+   | squeezenet         | 96.929      | 
+   | efficientnet_b0    | 141.834     |
+   | mobilenetv2_yolov3 | 150.258     |
+   | mobilenet_yolo     | 91.953      |

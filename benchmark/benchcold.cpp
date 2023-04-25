@@ -284,16 +284,16 @@ void WriteOutputFile(const char* comment){
 
     std::ofstream out;
 
-    char src[50];
+    char src[1000];
     strcpy(src,  comment);
     int len = strlen(src);
     char * last = const_cast<char*>(strrchr(src, '/') + 0);
     if(last != NULL){
         *(last+1)= '\0';
-        strcat(src, "output.csv");
+        strcat(src, "output.tmp.csv");
         out.open(src, std::ios::out | std::ios::app);  //以写入和在文件末尾添加的方式打开.txt文件，没有的话就创建该文件。
     }else{
-        out.open("output.csv", std::ios::out | std::ios::app);  //以写入和在文件末尾添加的方式打开.txt文件，没有的话就创建该文件。
+        out.open("output.tmp.csv", std::ios::out | std::ios::app);  //以写入和在文件末尾添加的方式打开.txt文件，没有的话就创建该文件。
     }
     if (!out.is_open())
     {
@@ -301,7 +301,7 @@ void WriteOutputFile(const char* comment){
         std::cout<<"[ERROR] open file: "<<src<<std::endl;
         return;
     }
-    out<<path<<cold_latency<<"ms"<<std::endl;
+    out<<path<<cold_latency<<std::endl;
     std::cout<<"write file: "<<src<<std::endl;
     out.close();
 }
@@ -746,7 +746,29 @@ void cold_boot_file(ncnn::Net &net, FILE* fp, const ncnn::Mat& in){
     }
 }
 
-int warmUp = 1;
+//int warmUp = 0;
+//void WarmUp_F(const ncnn::Option& opt){
+//    if(warmUp) //Warm up SoC to max the SoC CPU's freq.
+//    {
+//        ncnn::Net net_warmup;
+//        net_warmup.opt = opt;
+//        char tparampath[256];
+//        sprintf(tparampath, MODEL_DIR "/data/local/tmp/cold-infer-ncnn/mobilenet_v3.param"); //GoogleNet  //AlexNet
+//                                                                                             //        char tbinpath[256];
+//                                                                                             //        sprintf(tbinpath, MODEL_DIR "mobilenet_v3.bin");
+//        net_warmup.load_param(tparampath);
+//        DataReaderFromEmpty dr__;
+//        net_warmup.load_model_dr(dr__);
+//        //        }
+//        net_warmup.load_model_pipe();
+//        for (int i = 0; i < 30; i++)
+//        {
+//            ncnn::Mat top;
+//            inference(net_warmup, ncnn::Mat(227, 227, 3), false);
+//        }
+//    }
+//}
+
 void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option& opt)
 {
     ncnn::Mat in = _in;
@@ -804,43 +826,7 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
     double s_time = ncnn::get_current_time();
 
 //    warmUp =0;
-    if(warmUp) //Warm up SoC to max the SoC CPU's freq.
-    {
-        ncnn::Net net_in;
-        net_in.opt = net.opt;
-        char tparampath[256];
-        sprintf(tparampath, MODEL_DIR "mobilenet_v3.param"); //GoogleNet  //AlexNet
-        char tbinpath[256];
-        sprintf(tbinpath, MODEL_DIR "mobilenet_v3.bin");
-        net_in.load_param(gloableparampath);
-        int open = net_in.load_model_dr(globalbinpath);
-        if (open < 0)
-        {
-//            printf("_____    load file files\n");
-            DataReaderFromEmpty dr;
-            net_in.load_model_dr(dr);
-        }
-        net_in.load_model_pipe();
-        //    printf("load p end %f\n", ncnn::get_current_time()-start_t);
-        for (int i = 0; i < 30; i++)
-        {
-            ncnn::Mat top;
-            //        conv7x7s2_pack1to4_neon(ncnn::Mat(227, 227, 3), top, ncnn::Mat(7,7, 3), ncnn::Mat(7,7, 3), net->opt);
-            inference(net_in, ncnn::Mat(227, 227, 3), false);
-            //        ncnn::do_forward_layer
 
-            //        printf("infer p end %f\n", ncnn::get_current_time()-start_t);
-        }
-        ncnn::current_layer_idx_f2p = 0;
-        ncnn::current_layer_idx_p2i = 0;
-        infer_start = 0;
-        pipe_start = 0;
-        for_cal_time = 0;
-        for_skp_time = 0;
-        read_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
-        create_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
-        infer_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, {}};
-    }
     clear_times_save();
     resize_times_save(net.layers().size());
 
@@ -866,7 +852,7 @@ void benchmark_new(const char* comment, const ncnn::Mat& _in, const ncnn::Option
     FILE* fp = fopen(globalbinpath, "rb");
     if (!fp)
     {
-        NCNN_LOGE("fopen %s failed", globalbinpath);
+//        NCNN_LOGE("fopen %s failed", globalbinpath);
         cold_boot_empty(net, in);
     }
     else
@@ -1095,11 +1081,12 @@ int main(int argc, char** argv)
         ReadSprivMapBinaryFile(model_name);//create_pipeline() spriv˳��
     }
     ReadBinaryFile(model_name, use_vulkan_compute);//cpu����˳��
+//    WarmUp_F(opt);
 
     int file_bin =0;
-    char tbinpath[256];
-    sprintf(tbinpath, MODEL_DIR "%s.bin", model_name);
-    FILE* tfp = fopen(tbinpath, "rb");
+    char tmpbinpath[256];
+    sprintf(tmpbinpath, MODEL_DIR "%s.bin", model_name);
+    FILE* tfp = fopen(tmpbinpath, "rb");
     if (tfp)
     {
         file_bin =1;

@@ -11,3 +11,5 @@ cd ../build/benchmark || exit
 ./benchcolddeploy shufflenet_v2 2 0 0 0 1
 ./benchcolddeploy squeezenet 2 0 0 0 1
 ./benchcolddeploy efficientnet_b0 2 0 0 0 1
+./benchcolddeploy mobilenetv2_yolov3 2 0 0 0 1
+./benchcolddeploy mobilenet_yolo 2 0 0 0 1
