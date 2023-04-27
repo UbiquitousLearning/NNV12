@@ -21,11 +21,42 @@
 #include "option.h"
 #include "platform.h"
 
+#include <pthread.h>
+#include <set>
+
 #if NCNN_PLATFORM_API
 #if __ANDROID_API__ >= 9
 #include <android/asset_manager.h>
 #endif // __ANDROID_API__ >= 9
 #endif // NCNN_PLATFORM_API
+
+extern std::vector<size_t> DR_file_Vectors;
+extern int timeshow;
+extern std::set<int> finish_set;
+extern int finish_[];
+void finish_set_init();
+
+extern pthread_cond_t param_cond;
+extern pthread_cond_t param_cond_1;
+
+
+extern pthread_cond_t param_cond_cpu0;
+extern pthread_cond_t param_cond_cpu1;
+extern pthread_cond_t param_cond_cpu2;
+extern pthread_cond_t param_cond_cpu3;
+extern pthread_cond_t param_cond_cpu4;
+extern pthread_cond_t param_cond_cpu5;
+extern pthread_cond_t param_cond_cpu6;
+extern pthread_cond_t param_cond_cpu7;
+
+extern pthread_mutex_t param_lock;
+extern pthread_cond_t infer_cond;
+extern pthread_mutex_t infer_lock;
+extern pthread_cond_t pipe_cond;
+extern pthread_mutex_t pipe_lock;
+extern int param_finish;;
+extern int param_finish_1;
+
 extern double infer_start;
 extern double infer_end;
 extern double infer_time;
@@ -37,7 +68,43 @@ extern double pipe_end;
 extern double pipe_time;
 extern double for_skp_time;
 extern double for_cal_time;
+extern std::vector<int> cpu7_vector, cpu3_vector, cpu2_vector, cpu1_vector, cpu0_vector;
+
+extern double save_start_time;
+extern std::vector<double> read_starts;
+extern std::vector<double> read_ends;
+extern std::vector<double> trans_starts;
+extern std::vector<double> trans_ends;
+extern std::vector<double> infer_starts;
+extern std::vector<double> infer_ends;
+
+void clear_times_save();
+void resize_times_save(int sz);
+
+typedef struct syn_param{
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    int num;
+    uint8_t f[1000];
+} syn_param;
+
+
+extern syn_param read_syn;
+extern syn_param create_syn;
+extern syn_param infer_syn;
+void syn_wait(syn_param& syn, int i);
+void syn_act(syn_param& syn, int i);
+extern pthread_mutex_t next_layer_lock;
+extern int layer_next;
+int select_next_layer();
+extern pthread_mutex_t next_layer_create_lock;
+extern int layer_create_next;
+int select_next_layer_create();
+
 namespace ncnn {
+
+extern int current_layer_idx_f2p;
+extern int current_layer_idx_p2i;
 
 #if NCNN_VULKAN
 class VkCompute;
@@ -84,7 +151,34 @@ public:
 
     int load_model(const DataReader& dr);
     int load_model_dr(const DataReader& dr);
+    int load_model_dr(FILE* fp);
+    int load_model_dr(const char* modelpath);
+
+
+    int load_model_dr_cpu0(const DataReader& dr);
+    int load_model_dr_cpu0(FILE* fp);
+    int load_model_dr_cpu0(const char* modelpath);
+
+
+    int load_model_dr_cpu1(const DataReader& dr);
+    int load_model_dr_cpu1(FILE* fp);
+    int load_model_dr_cpu1(const char* modelpath);
+
+    int load_model_layer(const ModelBinFromDataReader& mb, int layer_idx);
+
+
+    int load_model_dr_layer(const DataReader& dr, int layer_idx);
+    int load_model_dr_layer(FILE* fp, int layer_idx);
+    int load_model_dr_layer(const char* modelpath, int layer_idx);
+
     int load_model_pipe();
+    int load_model_pipe_cpu1();
+    int load_model_pipe_cpu2();
+    int load_model_pipe_cpu3();
+
+    int load_pipe_layer(int layer_idx);
+    void upload_models();
+    int upload_model_layer(int layer_idx);
 
 #if NCNN_STDIO
 #if NCNN_STRING

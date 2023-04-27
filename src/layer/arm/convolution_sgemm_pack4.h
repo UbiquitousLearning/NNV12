@@ -1438,6 +1438,8 @@ static void im2col_sgemm_pack4_neon(const Mat& bottom_im2col, Mat& top_blob, con
 
 static void convolution_im2col_sgemm_transform_kernel_pack4_neon(const Mat& _kernel, Mat& kernel_tm, int inch, int outch, int kernel_w, int kernel_h)
 {
+//    printf("sgemm\n");
+//    printf("sgemm kernel_w:%d \n", kernel_w);
     const int maxk = kernel_w * kernel_h;
 
     // interleave
@@ -1550,8 +1552,16 @@ static void convolution_im2col_sgemm_transform_kernel_pack4_neon(const Mat& _ker
         }
     }
 #endif // __aarch64__
+//    struct timeval tv;
+//    gettimeofday(&tv, NULL);
+//    double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+
     for (; q + 3 < outch; q += 4)
+//    #pragma omp parallel for num_threads(4)
+//    for (q = 0; q < outch-3; q += 4)
     {
+//
+//        printf("kernel_w:%d  q=%d, tid=%ld,cpu=%d\n", kernel_w, q, pthread_self(), sched_getcpu());
         const Mat k0 = kernel.channel(q);
         const Mat k1 = kernel.channel(q + 1);
         const Mat k2 = kernel.channel(q + 2);
@@ -1611,10 +1621,21 @@ static void convolution_im2col_sgemm_transform_kernel_pack4_neon(const Mat& _ker
             }
         }
     }
+
+
+//    struct timeval tve;
+//    gettimeofday(&tve, NULL);
+//    double end = tve.tv_sec * 1000.0 + tve.tv_usec / 1000.0;
+//    printf("%f\n", end-start);
 }
 
 static void convolution_im2col_sgemm_pack4_neon(const Mat& bottom_blob, Mat& top_blob, const Mat& kernel, const Mat& _bias, int kernel_w, int kernel_h, int dilation_w, int dilation_h, int stride_w, int stride_h, const Option& opt)
 {
+
+//        struct timeval tv;
+//        gettimeofday(&tv, NULL);
+//        double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+
     int w = bottom_blob.w;
     int inch = bottom_blob.c;
 
@@ -1632,6 +1653,11 @@ static void convolution_im2col_sgemm_pack4_neon(const Mat& bottom_blob, Mat& top
         #pragma omp parallel for num_threads(opt.num_threads)
         for (int p = 0; p < inch; p++)
         {
+//                    struct timeval tv121;
+//                    gettimeofday(&tv121, NULL);
+//                    double startall = tv121.tv_sec * 1000.0 + tv121.tv_usec / 1000.0;
+//                printf("p=%d, tid=%ld,cpu=%d\n", p, pthread_self(), sched_getcpu());
+
             const Mat img = bottom_blob.channel(p);
             float* ptr = bottom_im2col.channel(p);
 
@@ -1681,8 +1707,22 @@ static void convolution_im2col_sgemm_pack4_neon(const Mat& bottom_blob, Mat& top
                     }
                 }
             }
+
+//                    struct timeval tv12;
+//                    gettimeofday(&tv12, NULL);
+//                    double end2 = tv12.tv_sec * 1000.0 + tv12.tv_usec / 1000.0;
+//
+//                    if(inch == 16)
+//                    printf("3 p=%d, time=%f,%f, %f,cpu=%d\n", p, end2 - startall, end2, startall, sched_getcpu());
         }
     }
 
+//        struct timeval tv1;
+//        gettimeofday(&tv1, NULL);
+//        double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
+//        if(inch == 16)
+//            printf("%f %f %f\n", end - start, end, start);
+
     im2col_sgemm_pack4_neon(bottom_im2col, top_blob, kernel, _bias, opt);
+
 }

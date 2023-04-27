@@ -746,9 +746,10 @@ int Convolution_vulkan::upload_model(VkTransfer& cmd, const Option& opt)
                 {0.0f, 0.0f, 1.0f}
             };
 
-            #pragma omp parallel for
+//            #pragma omp parallel for
             for (int p = 0; p < num_output; p++)
             {
+//                    printf("p=%d, tid=%ld,cpu=%d\n", p, pthread_self(), sched_getcpu());
                 for (int q = 0; q < num_input; q++)
                 {
                     const float* kernel0 = (const float*)weight_data + p * num_input * 9 + q * 9;
@@ -876,7 +877,7 @@ int Convolution_vulkan::upload_model(VkTransfer& cmd, const Option& opt)
                 {0.0f, 0.0f, 1.0f}
             };
 
-            #pragma omp parallel for
+//            #pragma omp parallel for
             for (int p = 0; p < num_output; p++)
             {
                 for (int q = 0; q < num_input; q++)

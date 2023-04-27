@@ -32,7 +32,7 @@ set(ncnn_SRCS
     mat_pixel_rotate.cpp
     modelbin.cpp
 #    net.cpp
-        net_new.cpp
+    net_new.cpp
     option.cpp
     paramdict.cpp
     pipeline.cpp
@@ -40,6 +40,7 @@ set(ncnn_SRCS
     simpleocv.cpp
     simpleomp.cpp
     simplestl.cpp
+     ./layer/arm/file_arm.cpp
 )
 
 if(ANDROID)

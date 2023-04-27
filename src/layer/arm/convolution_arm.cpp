@@ -17,6 +17,7 @@
 #include "benchmark.h"
 #include "cpu.h"
 #include "layer_type.h"
+#include "file_arm.h"
 
 #if __ARM_NEON
 #include <arm_neon.h>
@@ -130,6 +131,8 @@ Convolution_arm::Convolution_arm()
 
 int Convolution_arm::create_pipeline(const Option& opt)
 {
+    static pthread_mutex_t fread_lock;
+
     if (activation_type == 1)
     {
         activation = ncnn::create_layer(ncnn::LayerType::ReLU);
@@ -241,166 +244,800 @@ int Convolution_arm::create_pipeline(const Option& opt)
     int elempack = (support_packing && opt.use_packing_layout && num_input % 4 == 0) ? 4 : 1;
     int out_elempack = (support_packing && opt.use_packing_layout && num_output % 4 == 0) ? 4 : 1;
 
+
+    int param_111111 = 0;
+    int param_331111 = 0;//1;
+    int param_551111 = 0;
+
+    if(USE_KERNAL_ARM)
+    {
+        param_111111 = 0;
+        param_331111 = 1;//1;
+        param_551111 = 2;
+    }
+
+    if(USE_PACK_ARM && (!ARM_W_TEST)){
+        int flag_weight_sgemm_data_pack4 = 0;
+        int flag_weight_data_pack4 = 0;
+        int flag_weight_data_pack1to4 = 0;
+        int flag_weight_data_pack4to1 = 0;
+        int flag_weight_3x3_winograd42_data_pack4 = 0;
+        int flag_weight_3x3_winograd64_data = 0;
+        int flag_weight_sgemm_data = 0;
+        int flag_weight_3x3s2_data = 0;
+
 #if __ARM_NEON
-    // pack4
-    if (elempack == 4 && out_elempack == 4)
-    {
-        bool prefer_sgemm = (dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1 && num_input >= 12 && num_output >= 12)
-                            || (dilation_w == 1 && dilation_h == 1 && (stride_w >= 2 || stride_h >= 2) && num_input >= 16 && num_output >= 16)
-                            || ((dilation_w >= 2 || dilation_h >= 2) && num_input >= 16 && num_output >= 16);
+        // pack4
+        if (elempack == 4 && out_elempack == 4)
+        {
+            bool prefer_sgemm = (dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1 && num_input >= 12 && num_output >= 12)
+                                || (dilation_w == 1 && dilation_h == 1 && (stride_w >= 2 || stride_h >= 2) && num_input >= 16 && num_output >= 16)
+                                || ((dilation_w >= 2 || dilation_h >= 2) && num_input >= 16 && num_output >= 16);
 
-        if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
-        {
-            convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
-        }
-        else if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
-        {
-            convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
-        }
-        else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
-        {
-            conv3x3s1_winograd64_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output);
-            conv3x3s1_winograd42_transform_kernel_pack4_neon(weight_data, weight_3x3_winograd42_data_pack4, num_input, num_output);
-        }
-        else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
-        {
-            // we need more proper conditions
-            if (opt.use_sgemm_convolution && num_input >= 24 && num_output >= 24)
+            if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
             {
-                convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                //TODO 1.1.1.1_p
+                switch (param_111111)
+                {
+                case 0:
+                {
+                    //weight_data_pack4
+                    flag_weight_data_pack4 = 1;
+                    break;
+                }
+                case 1:
+                {
+                    //weight_sgemm_data_pack4
+                    flag_weight_sgemm_data_pack4 = 1;
+                    break;
+                }
+                case 2:
+                {
+                    //weight_data_pack4
+                    flag_weight_data_pack4 = 1;
+                    break;
+                }
+                default:
+                {
+                    ;
+                }
+                }
             }
-
-            convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
-        }
-        else if (kernel_w == 5 && kernel_h == 5 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
-        {
-            // we need more proper conditions
-            if (opt.use_sgemm_convolution && num_input >= 48 && num_output >= 48)
+            else if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
             {
-                convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                //weight_data_pack4
+                flag_weight_data_pack4 = 1;
             }
-
-            convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
-        }
-        else if (kernel_w == 5 && kernel_h == 5 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
-        {
-            // we need more proper conditions
-            if (opt.use_sgemm_convolution && num_input >= 72 && num_output >= 72)
+            else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
             {
-                convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                //TODO 3.1.1.1_p
+                switch (param_331111)
+                {
+                case 0:
+                {
+                    //weight_data_pack4
+                    flag_weight_data_pack4 = 1;
+                    //weight_3x3_winograd42_data_pack4
+                    flag_weight_3x3_winograd42_data_pack4 = 1;
+                    break;
+                }
+                case 1:
+                {
+                    //weight_sgemm_data_pack4
+                    flag_weight_sgemm_data_pack4= 1;
+                    break;
+                }
+                case 2:
+                {
+                    //weight_data_pack4
+                    flag_weight_data_pack4 = 1;
+                    break;
+                }
+                default:
+                {
+                    ;
+                }
+                }
             }
+            else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                // we need more proper conditions
+                if (opt.use_sgemm_convolution && num_input >= 24 && num_output >= 24)
+                {
+                    //weight_sgemm_data_pack4
+                    flag_weight_sgemm_data_pack4 = 1;
+                }
+                //weight_data_pack4
+                flag_weight_data_pack4 = 1;
+            }
+            else if (kernel_w == 5 && kernel_h == 5 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+                //TODO 5.1.1.1_p
+                switch (param_551111)
+                {
+                case 0:
+                {
+                    if (opt.use_sgemm_convolution && num_input >= 48 && num_output >= 48)
+                    {
+                        //weight_sgemm_data_pack4
+                        flag_weight_sgemm_data_pack4 = 1;
+                    }
+                    //weight_data_pack4
+                    flag_weight_data_pack4 = 1;
+                    break;
+                }
+                case 1:
+                {
+                    //weight_sgemm_data_pack4
+                    flag_weight_sgemm_data_pack4 = 1;
+                    break;
+                }
+                case 2:
+                {
+                    //weight_data_pack4
+                    flag_weight_data_pack4 = 1;
+                    break;
+                }
+                default:
+                {
+                    ;
+                }
+                }
+            }
+            else if (kernel_w == 5 && kernel_h == 5 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                // we need more proper conditions
+                if (opt.use_sgemm_convolution && num_input >= 72 && num_output >= 72)
+                {
+                    //weight_sgemm_data_pack4
+                    flag_weight_sgemm_data_pack4 = 1;
+                }
+                //weight_data_pack4
+                flag_weight_data_pack4 = 1;
+            }
+            else if (opt.use_sgemm_convolution && prefer_sgemm)
+            {
+                //weight_sgemm_data_pack4
+                flag_weight_sgemm_data_pack4 = 1;
+            }
+            else
+            {
+                //weight_data_pack4
+                flag_weight_data_pack4 = 1;
+            }
+        }
 
-            convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
-        }
-        else if (opt.use_sgemm_convolution && prefer_sgemm)
+        // pack1to4
+        if (elempack == 1 && out_elempack == 4)
         {
-            convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+            //weight_data_pack1to4
+            flag_weight_data_pack1to4 = 1;
         }
-        else
-        {
-            convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
-        }
-    }
 
-    // pack1to4
-    if (elempack == 1 && out_elempack == 4)
-    {
-        convolution_transform_kernel_pack1to4_neon(weight_data, weight_data_pack1to4, num_input, num_output, kernel_w, kernel_h);
-    }
-
-    // pack4to1
-    if (elempack == 4 && out_elempack == 1)
-    {
-        if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+        // pack4to1
+        if (elempack == 4 && out_elempack == 1)
         {
-            conv1x1s1_sgemm_transform_kernel_pack4to1_neon(weight_data, weight_data_pack4to1, num_input, num_output);
+            if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+                //weight_data_pack4to1
+                flag_weight_data_pack4to1 = 1;
+            }
+            else if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                //weight_data_pack4to1
+                flag_weight_data_pack4to1 = 1;
+            }
+            else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+                //weight_data_pack4to1
+                flag_weight_data_pack4to1 = 1;
+            }
+            else
+            {
+                //weight_data_pack4to1
+                flag_weight_data_pack4to1 = 1;
+            }
         }
-        else if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
-        {
-            conv1x1s1_sgemm_transform_kernel_pack4to1_neon(weight_data, weight_data_pack4to1, num_input, num_output);
-        }
-        else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
-        {
-            conv3x3s1_winograd64_transform_kernel_pack4to1_neon(weight_data, weight_data_pack4to1, num_input, num_output);
-        }
-        else
-        {
-            convolution_transform_kernel_pack4to1_neon(weight_data, weight_data_pack4to1, num_input, num_output, kernel_w, kernel_h);
-        }
-    }
 #endif // __ARM_NEON
 
-    // pack1
-    if (elempack == 1 && out_elempack == 1)
-    {
-        use_winograd3x3 = false;
-        use_sgemm1x1 = false;
-
-        if (opt.use_winograd_convolution && kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+        // pack1
+        if (elempack == 1 && out_elempack == 1)
         {
-            // winograd is slow on small channel count
-            if (num_input >= 16 && num_output >= 16)
-                use_winograd3x3 = true;
+            use_winograd3x3 = false;
+            use_sgemm1x1 = false;
 
-            if (use_winograd3x3)
+            if (opt.use_winograd_convolution && kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
             {
-                //                 conv3x3s1_winograd64_transform_kernel_neon(weight_data, weight_3x3_winograd64_data, num_input, num_output);
-                conv3x3s1_winograd64_transform_kernel_neon5(weight_data, weight_3x3_winograd64_data, num_input, num_output);
+                // winograd is slow on small channel count
+                if (num_input >= 16 && num_output >= 16)
+                    use_winograd3x3 = true;
+
+                if (use_winograd3x3)
+                {
+                    //weight_3x3_winograd64_data
+                    flag_weight_3x3_winograd64_data = 1;
+                }
+            }
+
+            // TODO assume more proper condition
+            if (opt.use_sgemm_convolution && kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+                if (num_input >= 64 && num_output >= 64)
+                    use_sgemm1x1 = true;
+
+                if (use_sgemm1x1)
+                {
+                    //weight_sgemm_data
+                    flag_weight_sgemm_data = 1;
+                }
+            }
+
+            if (impl_type > 0 && impl_type < 6 && impl_type != 4)
+            {
+                switch (impl_type)
+                {
+                case 1:
+                    // winograd
+                    //weight_3x3_winograd64_data
+                    flag_weight_3x3_winograd64_data = 1;
+                    break;
+                case 2:
+                // pointwise
+                case 3:
+                    // im2col
+                    //weight_sgemm_data
+                    flag_weight_sgemm_data = 1;
+                    break;
+                //                 case 4:
+                //                     // direct
+                //                     break;
+                case 5:
+                    // conv3x3s2
+                    //weight_3x3s2_data
+                    flag_weight_3x3s2_data = 1;
+                    break;
+                }
+            }
+
+            if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                //weight_3x3s2_data
+                flag_weight_3x3s2_data = 1;
+            }
+
+            if (opt.use_sgemm_convolution && kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                //weight_sgemm_data
+                flag_weight_sgemm_data = 1;
+            }
+
+            if (opt.use_sgemm_convolution && kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                //weight_sgemm_data
+                flag_weight_sgemm_data = 1;
             }
         }
 
-        // TODO assume more proper condition
-        if (opt.use_sgemm_convolution && kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+//        pthread_mutex_lock(&fread_lock);
+//        printf("read : %d\t", sched_getcpu());
+//        printf("%d  ", flag_weight_sgemm_data_pack4);
+//        printf("%d  ", flag_weight_data_pack4);
+//        printf("%d  ", flag_weight_data_pack1to4);
+//        printf("%d  ", flag_weight_data_pack4to1);
+//        printf("%d  ", flag_weight_3x3_winograd42_data_pack4);
+//        printf("%d  ", flag_weight_3x3_winograd64_data);
+//        printf("%d  ", flag_weight_sgemm_data);
+//        printf("%d\n", flag_weight_3x3s2_data);
+        int cpu_ = sched_getcpu();
+        if(flag_weight_sgemm_data_pack4){
+            int size =0;
+            int _w, _h, _c, _elemsize, _elempack;
+            fread(&size, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_w, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_h, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_c, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elemsize, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elempack, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            weight_sgemm_data_pack4.create(_w, _h, _c, _elemsize, _elempack);
+            fread(weight_sgemm_data_pack4, sizeof(float), size, arm_weight_file_reads[cpu_]);
+        }
+        if(flag_weight_data_pack4){
+            int size =0;
+            int _w, _h, _c, _elemsize, _elempack;
+            fread(&size, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_w, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_h, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_c, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elemsize, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elempack, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            weight_data_pack4.create(_w, _h, _c, _elemsize, _elempack);
+            fread(weight_data_pack4, sizeof(float), size, arm_weight_file_reads[cpu_]);
+        }
+        if(flag_weight_data_pack1to4){
+            int size =0;
+            int _w, _h, _c, _elemsize, _elempack;
+            fread(&size, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_w, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_h, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_c, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elemsize, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elempack, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            weight_data_pack1to4.create(_w, _h, _c, _elemsize, _elempack);
+            fread(weight_data_pack1to4, sizeof(float), size, arm_weight_file_reads[cpu_]);
+        }
+        if(flag_weight_data_pack4to1){
+            int size =0;
+            int _w, _h, _c, _elemsize, _elempack;
+            fread(&size, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_w, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_h, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_c, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elemsize, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elempack, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            weight_data_pack4to1.create(_w, _h, _c, _elemsize, _elempack);
+            fread(weight_data_pack4to1, sizeof(float), size, arm_weight_file_reads[cpu_]);
+        }
+        if(flag_weight_3x3_winograd42_data_pack4){
+            int size =0;
+            int _w, _h, _c, _elemsize, _elempack;
+            fread(&size, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_w, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_h, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_c, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elemsize, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elempack, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            weight_3x3_winograd42_data_pack4.create(_w, _h, _c, _elemsize, _elempack);
+            fread(weight_3x3_winograd42_data_pack4, sizeof(float), size, arm_weight_file_reads[cpu_]);
+        }
+        if(flag_weight_3x3_winograd64_data){
+            int size =0;
+            int _w, _h, _c, _elemsize, _elempack;
+            fread(&size, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_w, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_h, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_c, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elemsize, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elempack, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            weight_3x3_winograd64_data.create(_w, _h, _c, _elemsize, _elempack);
+            fread(weight_3x3_winograd64_data, sizeof(float), size, arm_weight_file_reads[cpu_]);
+        }
+        if(flag_weight_sgemm_data){
+            int size =0;
+            int _w, _h, _c, _elemsize, _elempack;
+            fread(&size, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_w, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_h, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_c, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elemsize, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elempack, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            weight_sgemm_data.create(_w, _h, _c, _elemsize, _elempack);
+            fread(weight_sgemm_data, sizeof(float), size, arm_weight_file_reads[cpu_]);
+        }
+        if(flag_weight_3x3s2_data){
+            int size =0;
+            int _w, _h, _c, _elemsize, _elempack;
+            fread(&size, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_w, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_h, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_c, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elemsize, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            fread(&_elempack, sizeof(int), 1, arm_weight_file_reads[cpu_]);
+            weight_3x3s2_data.create(_w, _h, _c, _elemsize, _elempack);
+            fread(weight_3x3s2_data, sizeof(float), size, arm_weight_file_reads[cpu_]);
+        }
+//        pthread_mutex_unlock(&fread_lock);
+    }
+    else {
+#if __ARM_NEON
+        // pack4
+        if (elempack == 4 && out_elempack == 4)
         {
-            if (num_input >= 64 && num_output >= 64)
-                use_sgemm1x1 = true;
+            bool prefer_sgemm = (dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1 && num_input >= 12 && num_output >= 12)
+                                || (dilation_w == 1 && dilation_h == 1 && (stride_w >= 2 || stride_h >= 2) && num_input >= 16 && num_output >= 16)
+                                || ((dilation_w >= 2 || dilation_h >= 2) && num_input >= 16 && num_output >= 16);
 
-            if (use_sgemm1x1)
+            if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
             {
-                convolution_im2col_sgemm_transform_kernel_neon(weight_data, weight_sgemm_data, num_input, num_output, kernel_w, kernel_h);
+                //TODO 1.1.1.1_p
+                switch (param_111111)
+                {
+                case 0:
+                {
+                    double s = get_current_time();
+                    convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    double e = get_current_time();
+                    //                printf("weight_data_pack4 %f\n", e-s);
+                    //
+                    //                FILE* wf = fopen("tmp.t.arb", "wb");
+                    //                size_t totalsize = alignSize(weight_data_pack4.total() * weight_data_pack4.elemsize, 4);
+                    //                int size = (totalsize + (int)sizeof(*weight_data_pack4.refcount)) / sizeof(float);
+                    //                fwrite(weight_data_pack4, sizeof(float), size, wf); // slope
+                    //                fclose(wf);
+                    //
+                    //                double sww = get_current_time();
+                    //                FILE* rf = fopen("tmp.t.arb", "rb");
+                    //                fread(weight_data_pack4, sizeof(float), size, rf); // slope
+                    //                double eww = get_current_time();
+                    //                printf("%f\n", eww-sww);
+                    //                fclose(rf);
+
+                    break;
+                }
+                case 1:
+                {
+                    convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    break;
+                }
+                case 2:
+                {
+                    convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    break;
+                }
+                default:
+                {
+                    ;
+                }
+                }
+                //            convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+            }
+            else if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+            }
+            else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+//                float* ptr = (float*)weight_data.data;
+//                printf("out %f %d %d  %d\n", *ptr, num_input, num_output, int( (*ptr) * num_input * num_output));
+//                if((-486) == int( (*ptr) * num_input * num_output))
+//                {
+//                    printf("pipe %f %d %d  %f\n", *ptr, num_input, num_output, (*ptr) * num_input * num_output);
+//                }
+                //TODO 3.1.1.1_p
+                switch (param_331111)
+                {
+                case 0:
+                {
+                    conv3x3s1_winograd64_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output);
+                    conv3x3s1_winograd42_transform_kernel_pack4_neon(weight_data, weight_3x3_winograd42_data_pack4, num_input, num_output);
+                    break;
+                }
+                case 1:
+                {
+                    convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    break;
+                }
+                case 2:
+                {
+                    convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    break;
+                }
+                case 3:{
+                    use_winograd3x3 = false;
+//                    if (num_input >= 16 && num_output >= 16)
+//                        use_winograd3x3 = true;
+
+                    if (use_winograd3x3)
+                    {
+                        //                 conv3x3s1_winograd64_transform_kernel_neon(weight_data, weight_3x3_winograd64_data, num_input, num_output);
+                        conv3x3s1_winograd64_transform_kernel_neon5(weight_data, weight_3x3_winograd64_data, num_input, num_output);
+                    }
+                    break;
+                }
+                default:
+                {
+                    ;
+                }
+                }
+                //            conv3x3s1_winograd64_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output);
+                //            conv3x3s1_winograd42_transform_kernel_pack4_neon(weight_data, weight_3x3_winograd42_data_pack4, num_input, num_output);
+            }
+            else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                // we need more proper conditions
+                if (opt.use_sgemm_convolution && num_input >= 24 && num_output >= 24)
+                {
+                    convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                }
+
+                convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+            }
+            else if (kernel_w == 5 && kernel_h == 5 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+                //TODO 5.1.1.1_p
+                switch (param_551111)
+                {
+                case 0:
+                {
+                    if (opt.use_sgemm_convolution && num_input >= 48 && num_output >= 48)
+                    {
+                        convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    }
+
+                    convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    break;
+                }
+                case 1:
+                {
+                    convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    break;
+                }
+                case 2:
+                {
+                    convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                    break;
+                }
+                default:
+                {
+                    ;
+                }
+                }
+                // we need more proper conditions
+                //            if (opt.use_sgemm_convolution && num_input >= 48 && num_output >= 48)
+                //            {
+                //                convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                //            }
+                //
+                //            convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+            }
+            else if (kernel_w == 5 && kernel_h == 5 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                // we need more proper conditions
+                if (opt.use_sgemm_convolution && num_input >= 72 && num_output >= 72)
+                {
+                    convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+                }
+
+                convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
+            }
+            else if (opt.use_sgemm_convolution && prefer_sgemm)
+            {
+                convolution_im2col_sgemm_transform_kernel_pack4_neon(weight_data, weight_sgemm_data_pack4, num_input, num_output, kernel_w, kernel_h);
+            }
+            else
+            {
+                convolution_transform_kernel_pack4_neon(weight_data, weight_data_pack4, num_input, num_output, kernel_w, kernel_h);
             }
         }
 
-        if (impl_type > 0 && impl_type < 6 && impl_type != 4)
+        // pack1to4
+        if (elempack == 1 && out_elempack == 4)
         {
-            switch (impl_type)
+            convolution_transform_kernel_pack1to4_neon(weight_data, weight_data_pack1to4, num_input, num_output, kernel_w, kernel_h);
+        }
+
+        // pack4to1
+        if (elempack == 4 && out_elempack == 1)
+        {
+            if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
             {
-            case 1:
-                // winograd
-                conv3x3s1_winograd64_transform_kernel_neon5(weight_data, weight_3x3_winograd64_data, num_input, num_output);
-                break;
-            case 2:
-            // pointwise
-            case 3:
-                // im2col
-                convolution_im2col_sgemm_transform_kernel_neon(weight_data, weight_sgemm_data, num_input, num_output, kernel_w, kernel_h);
-                break;
-            //                 case 4:
-            //                     // direct
-            //                     break;
-            case 5:
-                // conv3x3s2
+                conv1x1s1_sgemm_transform_kernel_pack4to1_neon(weight_data, weight_data_pack4to1, num_input, num_output);
+            }
+            else if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                conv1x1s1_sgemm_transform_kernel_pack4to1_neon(weight_data, weight_data_pack4to1, num_input, num_output);
+            }
+            else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+                conv3x3s1_winograd64_transform_kernel_pack4to1_neon(weight_data, weight_data_pack4to1, num_input, num_output);
+            }
+            else
+            {
+                convolution_transform_kernel_pack4to1_neon(weight_data, weight_data_pack4to1, num_input, num_output, kernel_w, kernel_h);
+            }
+        }
+#endif // __ARM_NEON
+
+        // pack1
+        if (elempack == 1 && out_elempack == 1)
+        {
+            use_winograd3x3 = false;
+            use_sgemm1x1 = false;
+
+            if (opt.use_winograd_convolution && kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+                // winograd is slow on small channel count
+                if (num_input >= 16 && num_output >= 16)
+                    use_winograd3x3 = true;
+
+                if (use_winograd3x3)
+                {
+                    //                 conv3x3s1_winograd64_transform_kernel_neon(weight_data, weight_3x3_winograd64_data, num_input, num_output);
+                    conv3x3s1_winograd64_transform_kernel_neon5(weight_data, weight_3x3_winograd64_data, num_input, num_output);
+                }
+            }
+
+            // TODO assume more proper condition
+            if (opt.use_sgemm_convolution && kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
+            {
+                if (num_input >= 64 && num_output >= 64)
+                    use_sgemm1x1 = true;
+
+                if (use_sgemm1x1)
+                {
+                    convolution_im2col_sgemm_transform_kernel_neon(weight_data, weight_sgemm_data, num_input, num_output, kernel_w, kernel_h);
+                }
+            }
+
+            if (impl_type > 0 && impl_type < 6 && impl_type != 4)
+            {
+                switch (impl_type)
+                {
+                case 1:
+                    // winograd
+                    conv3x3s1_winograd64_transform_kernel_neon5(weight_data, weight_3x3_winograd64_data, num_input, num_output);
+                    break;
+                case 2:
+                // pointwise
+                case 3:
+                    // im2col
+                    convolution_im2col_sgemm_transform_kernel_neon(weight_data, weight_sgemm_data, num_input, num_output, kernel_w, kernel_h);
+                    break;
+                //                 case 4:
+                //                     // direct
+                //                     break;
+                case 5:
+                    // conv3x3s2
+                    conv3x3s2_transform_kernel_neon(weight_data, weight_3x3s2_data, num_input, num_output);
+                    break;
+                }
+            }
+
+            if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
                 conv3x3s2_transform_kernel_neon(weight_data, weight_3x3s2_data, num_input, num_output);
-                break;
+            }
+
+            if (opt.use_sgemm_convolution && kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                convolution_im2col_sgemm_transform_kernel_neon(weight_data, weight_sgemm_data, num_input, num_output, kernel_w, kernel_h);
+            }
+
+            if (opt.use_sgemm_convolution && kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+            {
+                convolution_im2col_sgemm_transform_kernel_neon(weight_data, weight_sgemm_data, num_input, num_output, kernel_w, kernel_h);
             }
         }
 
-        if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
+        //    printf("%d %d %d %d %d %d\n", weight_data.empty(),weight_data_pack4.empty(), weight_data_pack1to4.empty(), weight_data_pack4to1.empty(), weight_3x3_winograd42_data_pack4.empty(), weight_sgemm_data_pack4.empty());
+        if (USE_PACK_ARM &&ARM_W_TEST)
         {
-            conv3x3s2_transform_kernel_neon(weight_data, weight_3x3s2_data, num_input, num_output);
-        }
+            size_t totalsize_wd = alignSize(weight_data.total() * weight_data.elemsize, 4);
+            int size_wd = (totalsize_wd + (int)sizeof(*weight_data.refcount)) / sizeof(float);
 
-        if (opt.use_sgemm_convolution && kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
-        {
-            convolution_im2col_sgemm_transform_kernel_neon(weight_data, weight_sgemm_data, num_input, num_output, kernel_w, kernel_h);
-        }
-
-        if (opt.use_sgemm_convolution && kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
-        {
-            convolution_im2col_sgemm_transform_kernel_neon(weight_data, weight_sgemm_data, num_input, num_output, kernel_w, kernel_h);
+            size_t size_save = 0;
+            if (!weight_sgemm_data_pack4.empty())
+            {
+                size_t totalsize = alignSize(weight_sgemm_data_pack4.total() * weight_sgemm_data_pack4.elemsize, 4);
+                int size = (totalsize + (int)sizeof(*weight_sgemm_data_pack4.refcount)) / sizeof(float);
+                fwrite(&size, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data_pack4.w, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data_pack4.h, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data_pack4.c, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data_pack4.elemsize, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data_pack4.elempack, sizeof(int), 1, arm_weight_file);
+                fwrite(weight_sgemm_data_pack4, sizeof(float), size, arm_weight_file); // slope
+                size_save += sizeof(int) * 6 + sizeof(float) * size;
+//                printf("%d %d %d %d %d\t ", weight_data.w, weight_data.h, weight_data.c, weight_data.elemsize, weight_data.elempack);
+//                printf("%d %d %d %d %d\n ", weight_sgemm_data_pack4.w, weight_sgemm_data_pack4.h, weight_sgemm_data_pack4.c, weight_sgemm_data_pack4.elemsize, weight_sgemm_data_pack4.elempack);
+//                printf("weight_sgemm_data_pack4 %d %d\n", size_wd, size);
+            }
+            if (!weight_data_pack4.empty())
+            {
+                size_t totalsize = alignSize(weight_data_pack4.total() * weight_data_pack4.elemsize, 4);
+                int size = (totalsize + (int)sizeof(*weight_data_pack4.refcount)) / sizeof(float);
+                fwrite(&size, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4.w, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4.h, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4.c, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4.elemsize, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4.elempack, sizeof(int), 1, arm_weight_file);
+                fwrite(weight_data_pack4, sizeof(float), size, arm_weight_file); // slope
+                size_save += sizeof(int) * 6 + sizeof(float) * size;
+//                printf("%d %d %d %d %d\t ", weight_data.w, weight_data.h, weight_data.c, weight_data.elemsize, weight_data.elempack);
+//                printf("%d %d %d %d %d\n ", weight_data_pack4.w, weight_data_pack4.h, weight_data_pack4.c, weight_data_pack4.elemsize, weight_data_pack4.elempack);
+//                printf("weight_data_pack4 %d %d\n", size_wd, size);
+            }
+            if (!weight_data_pack1to4.empty())
+            {
+                size_t totalsize = alignSize(weight_data_pack1to4.total() * weight_data_pack1to4.elemsize, 4);
+                int size = (totalsize + (int)sizeof(*weight_data_pack1to4.refcount)) / sizeof(float);
+                fwrite(&size, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack1to4.w, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack1to4.h, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack1to4.c, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack1to4.elemsize, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack1to4.elempack, sizeof(int), 1, arm_weight_file);
+                fwrite(weight_data_pack1to4, sizeof(float), size, arm_weight_file); // slope
+                size_save += sizeof(int) * 6 + sizeof(float) * size;
+//                printf("%d %d %d %d %d\t ", weight_data.w, weight_data.h, weight_data.c, weight_data.elemsize, weight_data.elempack);
+//                printf("%d %d %d %d %d\n ", weight_data_pack1to4.w, weight_data_pack1to4.h, weight_data_pack1to4.c, weight_data_pack1to4.elemsize, weight_data_pack1to4.elempack);
+//                printf("weight_data_pack1to4 %d %d\n", size_wd, size);
+            }
+            if (!weight_data_pack4to1.empty())
+            {
+                size_t totalsize = alignSize(weight_data_pack4to1.total() * weight_data_pack4to1.elemsize, 4);
+                int size = (totalsize + (int)sizeof(*weight_data_pack4to1.refcount)) / sizeof(float);
+                fwrite(&size, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4to1.w, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4to1.h, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4to1.c, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4to1.elemsize, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_data_pack4to1.elempack, sizeof(int), 1, arm_weight_file);
+                fwrite(weight_data_pack4to1, sizeof(float), size, arm_weight_file); // slope
+                size_save += sizeof(int) * 6 + sizeof(float) * size;
+//                printf("%d %d %d %d %d\t ", weight_data.w, weight_data.h, weight_data.c, weight_data.elemsize, weight_data.elempack);
+//                printf("%d %d %d %d %d\n ", weight_data_pack4to1.w, weight_data_pack4to1.h, weight_data_pack4to1.c, weight_data_pack4to1.elemsize, weight_data_pack4to1.elempack);
+//                printf("weight_data_pack4to1 %d %d\n", size_wd, size);
+            }
+            if (!weight_3x3_winograd42_data_pack4.empty())
+            {
+                size_t totalsize = alignSize(weight_3x3_winograd42_data_pack4.total() * weight_3x3_winograd42_data_pack4.elemsize, 4);
+                int size = (totalsize + (int)sizeof(*weight_3x3_winograd42_data_pack4.refcount)) / sizeof(float);
+                fwrite(&size, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd42_data_pack4.w, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd42_data_pack4.h, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd42_data_pack4.c, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd42_data_pack4.elemsize, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd42_data_pack4.elempack, sizeof(int), 1, arm_weight_file);
+                fwrite(weight_3x3_winograd42_data_pack4, sizeof(float), size, arm_weight_file); // slope
+                size_save += sizeof(int) * 6 + sizeof(float) * size;
+//                printf("%d %d %d %d %d\t ", weight_data.w, weight_data.h, weight_data.c, weight_data.elemsize, weight_data.elempack);
+//                printf("%d %d %d %d %d\n ", weight_3x3_winograd42_data_pack4.w, weight_3x3_winograd42_data_pack4.h, weight_3x3_winograd42_data_pack4.c, weight_3x3_winograd42_data_pack4.elemsize, weight_3x3_winograd42_data_pack4.elempack);
+//                printf("weight_3x3_winograd42_data_pack4 %d %d\n", size_wd, size);
+            }
+            if (!weight_3x3_winograd64_data.empty())
+            {
+                size_t totalsize = alignSize(weight_3x3_winograd64_data.total() * weight_3x3_winograd64_data.elemsize, 4);
+                int size = (totalsize + (int)sizeof(*weight_3x3_winograd64_data.refcount)) / sizeof(float);
+                fwrite(&size, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd64_data.w, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd64_data.h, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd64_data.c, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd64_data.elemsize, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3_winograd64_data.elempack, sizeof(int), 1, arm_weight_file);
+                fwrite(weight_3x3_winograd64_data, sizeof(float), size, arm_weight_file); // slope
+                size_save += sizeof(int) * 6 + sizeof(float) * size;
+//                printf("%d %d %d %d %d\t ", weight_data.w, weight_data.h, weight_data.c, weight_data.elemsize, weight_data.elempack);
+//                printf("%d %d %d %d %d\n ", weight_3x3_winograd64_data.w, weight_3x3_winograd64_data.h, weight_3x3_winograd64_data.c, weight_3x3_winograd64_data.elemsize, weight_3x3_winograd64_data.elempack);
+//                printf("weight_3x3_winograd64_data %d %d\n", size_wd, size);
+            }
+            if (!weight_3x3s2_data.empty())
+            {
+                size_t totalsize = alignSize(weight_3x3s2_data.total() * weight_3x3s2_data.elemsize, 4);
+                int size = (totalsize + (int)sizeof(*weight_3x3s2_data.refcount)) / sizeof(float);
+                fwrite(&size, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3s2_data.w, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3s2_data.h, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3s2_data.c, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3s2_data.elemsize, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_3x3s2_data.elempack, sizeof(int), 1, arm_weight_file);
+                fwrite(weight_3x3s2_data, sizeof(float), size, arm_weight_file); // slope
+                size_save += sizeof(int) * 6 + sizeof(float) * size;
+//                printf("%d %d %d %d %d\t ", weight_data.w, weight_data.h, weight_data.c, weight_data.elemsize, weight_data.elempack);
+//                printf("%d %d %d %d %d\n ", weight_3x3s2_data.w, weight_sgemm_data_pack4.h, weight_3x3s2_data.c, weight_3x3s2_data.elemsize, weight_3x3s2_data.elempack);
+//                printf("weight_3x3s2_data %d %d\n", size_wd, size);
+            }
+            if (!weight_sgemm_data.empty())
+            {
+                size_t totalsize = alignSize(weight_sgemm_data.total() * weight_sgemm_data.elemsize, 4);
+                int size = (totalsize + (int)sizeof(*weight_sgemm_data.refcount)) / sizeof(float);
+                fwrite(&size, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data.w, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data.h, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data.c, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data.elemsize, sizeof(int), 1, arm_weight_file);
+                fwrite(&weight_sgemm_data.elempack, sizeof(int), 1, arm_weight_file);
+                fwrite(weight_sgemm_data, sizeof(float), size, arm_weight_file); // slope
+                size_save += sizeof(int) * 6 + sizeof(float) * size;
+//                printf("%d %d %d %d %d\t ", weight_data.w, weight_data.h, weight_data.c, weight_data.elemsize, weight_data.elempack);
+//                printf("%d %d %d %d %d\n ", weight_sgemm_data.w, weight_sgemm_data.h, weight_sgemm_data.c, weight_sgemm_data.elemsize, weight_sgemm_data.elempack);
+//                printf("weight_sgemm_data %d %d\n", size_wd, size);
+            }
+            arm_weight_file_seek_save += size_save;
+            //        vk_weight_seek += size * sizeof(float);
+//            printf("save %zu\n", arm_weight_file_seek_save);
         }
     }
-
     return 0;
 }
 
@@ -492,6 +1129,16 @@ int Convolution_arm::forward(const Mat& bottom_blob, Mat& top_blob, const Option
     const int num_input = channels * elempack;
 
 #if __ARM_NEON
+    int param_111111 = 0;
+    int param_331111 = 0;
+    int param_551111 = 0;
+
+    if(USE_KERNAL_ARM)
+    {
+        param_111111 = 0;
+        param_331111 = 1;//1;
+        param_551111 = 2;
+    }
     if (elempack == 4 && out_elempack == 4)
     {
         bool prefer_sgemm = (dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1 && num_input >= 12 && num_output >= 12)
@@ -500,12 +1147,40 @@ int Convolution_arm::forward(const Mat& bottom_blob, Mat& top_blob, const Option
 
         if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
         {
-            conv1x1s1_sgemm_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
+            //TODO 1.1.1.1_f
+            switch(param_111111){
+            case 0:{
+                conv1x1s1_sgemm_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
 
-            if (activation)
-            {
-                activation->forward_inplace(top_blob, opt);
+                if (activation)
+                {
+                    activation->forward_inplace(top_blob, opt);
+                }
+                break;
             }
+            case 1:{
+                convolution_im2col_sgemm_pack4_neon(bottom_blob_bordered, top_blob, weight_sgemm_data_pack4, bias_data, kernel_w, kernel_h, dilation_w, dilation_h, stride_w, stride_h, opt);
+
+                if (activation)
+                {
+                    activation->forward_inplace(top_blob, opt);
+                }
+                break;
+            }
+            case 2:{
+                convolution_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, kernel_w, kernel_h, dilation_w, dilation_h, stride_w, stride_h, activation_type, activation_params, opt);
+                break;
+            }
+            default:{
+                ;
+            }
+            }
+//            conv1x1s1_sgemm_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
+//
+//            if (activation)
+//            {
+//                activation->forward_inplace(top_blob, opt);
+//            }
         }
         else if (kernel_w == 1 && kernel_h == 1 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
         {
@@ -519,19 +1194,81 @@ int Convolution_arm::forward(const Mat& bottom_blob, Mat& top_blob, const Option
         else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
         {
             // we need more proper conditions
-            if ((w <= 10 || (w >= 15 && w <= 18) || w == 21 || w == 22) && (h <= 10 || (h >= 15 && h <= 18) || h == 21 || h == 22))
-            {
-                conv3x3s1_winograd42_pack4_neon(bottom_blob_bordered, top_blob, weight_3x3_winograd42_data_pack4, bias_data, opt);
-            }
-            else
-            {
-                conv3x3s1_winograd64_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
-            }
+//            float* ptr = (float*)weight_data.data;
+//            if((-486) == int( (*ptr) * num_input * num_output))
+//            {
+//                printf("for %d %d\n",  num_input, num_output);
+//            }
+            //TODO 3.1.1.1_f
+            switch(param_331111){
+            case 0:{
+                if ((w <= 10 || (w >= 15 && w <= 18) || w == 21 || w == 22) && (h <= 10 || (h >= 15 && h <= 18) || h == 21 || h == 22))
+                {
+                    conv3x3s1_winograd42_pack4_neon(bottom_blob_bordered, top_blob, weight_3x3_winograd42_data_pack4, bias_data, opt);
+                }
+                else
+                {
+                    conv3x3s1_winograd64_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
+                }
 
-            if (activation)
-            {
-                activation->forward_inplace(top_blob, opt);
+                if (activation)
+                {
+                    activation->forward_inplace(top_blob, opt);
+                }
+                break;
             }
+            case 1:{
+                convolution_im2col_sgemm_pack4_neon(bottom_blob_bordered, top_blob, weight_sgemm_data_pack4, bias_data, kernel_w, kernel_h, dilation_w, dilation_h, stride_w, stride_h, opt);
+
+                if (activation)
+                {
+                    activation->forward_inplace(top_blob, opt);
+                }
+                break;
+            }
+            case 2:{
+                convolution_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, kernel_w, kernel_h, dilation_w, dilation_h, stride_w, stride_h, activation_type, activation_params, opt);
+                break;
+            }
+            case 3:{
+//                elempack = 1;
+//                out_elempack = 1;
+//                out_elemsize = elemsize / elempack * out_elempack;
+                ncnn::Option opt_ = opt;
+                opt_.use_packing_layout = false;
+//                if (use_winograd3x3 && w <= 120 && h <= 120)
+//                {
+//                    //                 conv3x3s1_winograd64_neon4(bottom_blob_bordered, top_blob, weight_3x3_winograd64_data, bias_data, opt);
+//                    conv3x3s1_winograd64_neon5(bottom_blob_bordered, top_blob, weight_3x3_winograd64_data, bias_data, opt);
+//                }
+//                else
+                {
+                    conv3x3s1_neon(bottom_blob_bordered, top_blob, weight_data, bias_data, opt_);
+                }
+
+                if (activation)
+                {
+                    activation->forward_inplace(top_blob, opt_);
+                }
+                break;
+            }
+            default:{
+                ;
+            }
+            }
+//            if ((w <= 10 || (w >= 15 && w <= 18) || w == 21 || w == 22) && (h <= 10 || (h >= 15 && h <= 18) || h == 21 || h == 22))
+//            {
+//                conv3x3s1_winograd42_pack4_neon(bottom_blob_bordered, top_blob, weight_3x3_winograd42_data_pack4, bias_data, opt);
+//            }
+//            else
+//            {
+//                conv3x3s1_winograd64_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
+//            }
+//
+//            if (activation)
+//            {
+//                activation->forward_inplace(top_blob, opt);
+//            }
         }
         else if (kernel_w == 3 && kernel_h == 3 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
         {
@@ -557,29 +1294,78 @@ int Convolution_arm::forward(const Mat& bottom_blob, Mat& top_blob, const Option
         }
         else if (kernel_w == 5 && kernel_h == 5 && dilation_w == 1 && dilation_h == 1 && stride_w == 1 && stride_h == 1)
         {
-            // we need more proper conditions
-            prefer_sgemm = (size >= 16 * 16 && size <= 17 * 17 && num_input >= 200 && num_output >= 200)
-                           || (size >= 15 * 15 && size < 16 * 16 && num_input >= 128 && num_output >= 128)
-                           || (size >= 13 * 13 && size < 15 * 15 && num_input >= 160 && num_output >= 160)
-                           || (size >= 12 * 12 && size < 13 * 13 && num_input >= 184 && num_output >= 184)
-                           || (size >= 11 * 11 && size < 12 * 12 && num_input >= 88 && num_output >= 88)
-                           || (size >= 10 * 10 && size < 11 * 11 && num_input >= 128 && num_output >= 128)
-                           || (size >= 9 * 9 && size < 10 * 10 && num_input >= 120 && num_output >= 120)
-                           || (size >= 8 * 8 && size < 9 * 9 && num_input >= 192 && num_output >= 192)
-                           || (size >= 6 * 6 && size < 8 * 8 && num_input >= 48 && num_output >= 48);
-            if (opt.use_sgemm_convolution && prefer_sgemm)
+            //TODO 5.1.1.1_f
+            switch(param_551111)
+            {
+            case 0:
+            {
+                prefer_sgemm = (size >= 16 * 16 && size <= 17 * 17 && num_input >= 200 && num_output >= 200)
+                               || (size >= 15 * 15 && size < 16 * 16 && num_input >= 128 && num_output >= 128)
+                               || (size >= 13 * 13 && size < 15 * 15 && num_input >= 160 && num_output >= 160)
+                               || (size >= 12 * 12 && size < 13 * 13 && num_input >= 184 && num_output >= 184)
+                               || (size >= 11 * 11 && size < 12 * 12 && num_input >= 88 && num_output >= 88)
+                               || (size >= 10 * 10 && size < 11 * 11 && num_input >= 128 && num_output >= 128)
+                               || (size >= 9 * 9 && size < 10 * 10 && num_input >= 120 && num_output >= 120)
+                               || (size >= 8 * 8 && size < 9 * 9 && num_input >= 192 && num_output >= 192)
+                               || (size >= 6 * 6 && size < 8 * 8 && num_input >= 48 && num_output >= 48);
+                if (opt.use_sgemm_convolution && prefer_sgemm)
+                {
+                    convolution_im2col_sgemm_pack4_neon(bottom_blob_bordered, top_blob, weight_sgemm_data_pack4, bias_data, kernel_w, kernel_h, dilation_w, dilation_h, stride_w, stride_h, opt);
+                }
+                else
+                {
+                    conv5x5s1_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
+                }
+
+                if (activation)
+                {
+                    activation->forward_inplace(top_blob, opt);
+                }
+                break;
+            }
+            case 1:
             {
                 convolution_im2col_sgemm_pack4_neon(bottom_blob_bordered, top_blob, weight_sgemm_data_pack4, bias_data, kernel_w, kernel_h, dilation_w, dilation_h, stride_w, stride_h, opt);
-            }
-            else
-            {
-                conv5x5s1_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
-            }
 
-            if (activation)
-            {
-                activation->forward_inplace(top_blob, opt);
+                if (activation)
+                {
+                    activation->forward_inplace(top_blob, opt);
+                }
+                break;
             }
+            case 2:
+            {
+                convolution_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, kernel_w, kernel_h, dilation_w, dilation_h, stride_w, stride_h, activation_type, activation_params, opt);
+                break;
+            }
+            default:
+            {
+                ;
+            }
+            }
+            // we need more proper conditions
+//            prefer_sgemm = (size >= 16 * 16 && size <= 17 * 17 && num_input >= 200 && num_output >= 200)
+//                           || (size >= 15 * 15 && size < 16 * 16 && num_input >= 128 && num_output >= 128)
+//                           || (size >= 13 * 13 && size < 15 * 15 && num_input >= 160 && num_output >= 160)
+//                           || (size >= 12 * 12 && size < 13 * 13 && num_input >= 184 && num_output >= 184)
+//                           || (size >= 11 * 11 && size < 12 * 12 && num_input >= 88 && num_output >= 88)
+//                           || (size >= 10 * 10 && size < 11 * 11 && num_input >= 128 && num_output >= 128)
+//                           || (size >= 9 * 9 && size < 10 * 10 && num_input >= 120 && num_output >= 120)
+//                           || (size >= 8 * 8 && size < 9 * 9 && num_input >= 192 && num_output >= 192)
+//                           || (size >= 6 * 6 && size < 8 * 8 && num_input >= 48 && num_output >= 48);
+//            if (opt.use_sgemm_convolution && prefer_sgemm)
+//            {
+//                convolution_im2col_sgemm_pack4_neon(bottom_blob_bordered, top_blob, weight_sgemm_data_pack4, bias_data, kernel_w, kernel_h, dilation_w, dilation_h, stride_w, stride_h, opt);
+//            }
+//            else
+//            {
+//                conv5x5s1_pack4_neon(bottom_blob_bordered, top_blob, weight_data_pack4, bias_data, opt);
+//            }
+//
+//            if (activation)
+//            {
+//                activation->forward_inplace(top_blob, opt);
+//            }
         }
         else if (kernel_w == 5 && kernel_h == 5 && dilation_w == 1 && dilation_h == 1 && stride_w == 2 && stride_h == 2)
         {

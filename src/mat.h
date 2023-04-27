@@ -51,6 +51,8 @@
 
 namespace ncnn {
 
+extern double malloc_time;
+
 #if NCNN_VULKAN
 class VkMat;
 class VkImageMat;

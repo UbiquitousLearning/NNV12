@@ -14,6 +14,8 @@
 
 static void convolution_transform_kernel_pack1to4_neon(const Mat& weight_data, Mat& weight_data_pack1to4, int num_input, int num_output, int kernel_w, int kernel_h)
 {
+//    printf("124\n");
+//    printf("124 kernel_w:%d \n", kernel_w);
     const int maxk = kernel_w * kernel_h;
 
     // src = kw-kh-inch-outch
@@ -22,8 +24,29 @@ static void convolution_transform_kernel_pack1to4_neon(const Mat& weight_data, M
 
     weight_data_pack1to4.create(maxk, num_input, num_output / 4, (size_t)4 * 4, 4);
 
+//    struct timeval tv;
+//    gettimeofday(&tv, NULL);
+//    double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
     for (int q = 0; q + 3 < num_output; q += 4)
     {
+//    #pragma omp parallel for num_threads(4)
+//    for (int q = 0; q < num_output -3; q += 4)
+//    {
+//        cpu_set_t mask;  //CPU核的集合
+//        CPU_ZERO(&mask);    //置空
+//        CPU_SET(0,&mask);   //设置亲和力值
+//        CPU_SET(1,&mask);   //设置亲和力值
+//        CPU_SET(2,&mask);   //设置亲和力值
+//        CPU_SET(3,&mask);   //设置亲和力值
+//        if (sched_setaffinity(0, sizeof(mask), &mask) == -1)//设置线程CPU亲和力
+//        {
+//            printf("warning: could not set CPU affinity, continuing...\n");
+//        }
+
+//        struct timeval tv;
+//        gettimeofday(&tv, NULL);
+//        double start = tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+//        printf("kernel_w:%d  q=%d, tid=%ld,cpu=%d\n", kernel_w, q, pthread_self(), sched_getcpu());
         const Mat k0 = weight_data_r2.channel(q);
         const Mat k1 = weight_data_r2.channel(q + 1);
         const Mat k2 = weight_data_r2.channel(q + 2);
@@ -50,7 +73,17 @@ static void convolution_transform_kernel_pack1to4_neon(const Mat& weight_data, M
                 g00 += 4;
             }
         }
+
+//        struct timeval tve;
+//        gettimeofday(&tve, NULL);
+//        double end = tve.tv_sec * 1000.0 + tve.tv_usec / 1000.0;
+//        printf("kernel_w:%d  q=%d, tid=%ld,cpu=%d time=%f\n", kernel_w, q, pthread_self(), sched_getcpu(), end-start);
     }
+
+//    struct timeval tve;
+//    gettimeofday(&tve, NULL);
+//    double end = tve.tv_sec * 1000.0 + tve.tv_usec / 1000.0;
+//    printf("%f\n", end-start);
 }
 
 static void convolution_pack1to4_neon(const Mat& bottom_blob, Mat& top_blob, const Mat& weight_data_pack1to4, const Mat& bias_data, int kernel_w, int kernel_h, int dilation_w, int dilation_h, int stride_w, int stride_h, int activation_type, const Mat& activation_params, const Option& opt)
@@ -89,6 +122,7 @@ static void convolution_pack1to4_neon(const Mat& bottom_blob, Mat& top_blob, con
     #pragma omp parallel for num_threads(opt.num_threads)
     for (int p = 0; p < outch; p++)
     {
+//        printf("124 p=%d, tid=%ld,cpu=%d\n", p, pthread_self(), sched_getcpu());
         float* outptr = top_blob.channel(p);
 
         for (int i = 0; i < outh; i++)

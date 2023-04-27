@@ -43,6 +43,139 @@
 #endif // NCNN_VULKAN
 #include <ctime>
 #include <sys/time.h>
+#include <iostream>
+#include "datareader.h"
+#include "pipeline.h"
+#include "arm/file_arm.h"
+
+float pipe_t_list[] = {0.001, 0.235, 0.001, 0.002, 0.001, 0.350, 0.001, 1.787, 0.002, 0.001, 0.002, 0.001, 0.167, 0.001, 0.240, 0.001, 1.894, 0.002, 0.101, 0.001, 0.270, 0.001, 0.003, 0.118, 0.001, 0.003, 0.002, 0.655, 0.002, 0.571, 0.001, 4.697, 0.003, 0.087, 0.001, 1.125, 0.002, 0.002, 0.276, 0.001, 0.002, 0.002, 0.002, 1.710, 0.002, 0.793, 0.001, 3.425, 0.002, 0.136, 0.001, 0.298, 0.001, 0.002, 0.492, 0.001, 0.001, 0.002, 1.282, 0.003, 1.058, 0.002, 2.665, 0.001, 0.130, 0.000, 0.348, 0.001, 0.002, 0.274, 0.001, 0.001, 0.001, 0.503, 0.001, 0.538, 0.001, 2.756, 0.001, 0.155, 0.000, 0.331, 0.000, 0.002, 0.294, 0.000, 0.001, 0.001, 0.527, 0.002, 0.680, 0.001, 3.407, 0.001, 0.164, 0.000, 0.407, 0.001, 0.003, 0.352, 0.002, 0.001, 0.001, 1.261, 0.001, 0.760, 0.002, 4.176, 0.002, 0.146, 0.001, 0.792, 0.001, 0.002, 0.542, 0.001, 0.001, 0.001, 0.001, 1.776, 0.001, 1.108, 0.001, 3.485, 0.002, 0.221, 0.000, 0.779, 0.001, 0.002, 0.902, 0.001, 0.002, 0.002, 2.503, 0.002, 1.309, 0.001, 5.728, 0.002, 0.390, 0.000, 1.087, 0.002, 0.001, 0.836, 0.001, 0.001, 0.001, 0.001, 0.028, 0.002};
+std::vector<size_t> DR_file_Vectors;
+
+std::set<int> finish_set;
+double save_start_time;
+
+//静态建立一个条件变量infer_cond，放在全局里
+pthread_cond_t param_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t param_cond_1 = PTHREAD_COND_INITIALIZER;
+
+
+pthread_cond_t param_cond_cpu0 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t param_cond_cpu1 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t param_cond_cpu2 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t param_cond_cpu3 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t param_cond_cpu4 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t param_cond_cpu5 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t param_cond_cpu6 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t param_cond_cpu7 = PTHREAD_COND_INITIALIZER;
+
+
+//静态建立一个互斥锁infer_lock，放在全局里
+pthread_mutex_t param_lock = PTHREAD_MUTEX_INITIALIZER;
+
+
+//静态建立一个条件变量infer_cond，放在全局里
+pthread_cond_t infer_cond = PTHREAD_COND_INITIALIZER;
+//静态建立一个互斥锁infer_lock，放在全局里
+pthread_mutex_t infer_lock = PTHREAD_MUTEX_INITIALIZER;
+
+//静态建立一个条件变量infer_cond，放在全局里
+pthread_cond_t pipe_cond = PTHREAD_COND_INITIALIZER;
+//静态建立一个互斥锁infer_lock，放在全局里
+pthread_mutex_t pipe_lock = PTHREAD_MUTEX_INITIALIZER;
+
+
+syn_param read_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
+syn_param create_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
+syn_param infer_syn = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0};
+
+std::vector<double> read_starts;
+std::vector<double> read_ends;
+std::vector<double> trans_starts;
+std::vector<double> trans_ends;
+std::vector<double> infer_starts;
+std::vector<double> infer_ends;
+int save_time = 0;
+void clear_times_save(){
+    std::vector<double>().swap(read_starts);
+    std::vector<double>().swap(read_ends);
+    std::vector<double>().swap(trans_starts);
+    std::vector<double>().swap(trans_ends);
+    std::vector<double>().swap(infer_starts);
+    std::vector<double>().swap(infer_ends);
+    save_time = 1;
+}
+void resize_times_save(int sz){
+    read_starts.resize(sz);
+    read_ends.resize(sz);
+    trans_starts.resize(sz);
+    trans_ends.resize(sz);
+    infer_starts.resize(sz);
+    infer_ends.resize(sz);
+//    printf("sz %zu %f \n", trans_starts.size(), trans_starts[0]);
+}
+
+
+
+std::vector<int> cpu7_vector, cpu3_vector, cpu2_vector, cpu1_vector, cpu0_vector;
+void syn_wait(syn_param& syn, int i){
+//    pthread_mutex_lock(&syn.lock);
+//    while (i > syn.num){
+////        printf("%d, %d, %d %d\n", read_syn.num, create_syn.num, infer_syn.num, i);
+////        pthread_cond_wait(&syn.cond, &syn.lock);
+////        printf("lllock\n");
+//        sleep(0);
+//    }
+//    pthread_mutex_unlock(&syn.lock);;
+//    printf("lock\n");
+    while(syn.f[i] != 4){
+//        printf("%d\n", i);
+        sleep(0);
+    }
+}
+void syn_act(syn_param& syn, int i){
+//    printf("act %d %d\n", syn.num, i);
+//    pthread_mutex_lock(&syn.lock);
+//    printf("act %d\n", syn.num, i);
+//    if (i>=syn.num)
+//        syn.num = i;
+//    pthread_mutex_unlock(&syn.lock);
+//    pthread_cond_signal(&syn.cond);
+
+    syn.f[i] = 4;
+}
+int layer_next = 5;
+pthread_mutex_t next_layer_lock = PTHREAD_MUTEX_INITIALIZER;
+int select_next_layer(){
+//    pthread_mutex_lock(&next_layer_lock);
+    layer_next = layer_next + 1;
+//    pthread_mutex_unlock(&next_layer_lock);
+//    if(layer_next == 105||layer_next == 110||layer_next == 97)
+//        layer_next ++;
+    while (finish_set.count(layer_next))
+    {
+        layer_next++;
+    }
+    return layer_next;
+}
+int timeshow=0;
+int finish_[]={};//{16,19,22};//{97, 105, 110};//{69,212,217};
+void finish_set_init(){
+    finish_set.clear();
+    int len = cpu7_vector.size();
+    for(int i=0; i<len; i++){
+        finish_set.insert(cpu7_vector[i]);
+    }
+
+}
+int layer_create_next = 5;
+pthread_mutex_t next_layer_create_lock = PTHREAD_MUTEX_INITIALIZER;
+int select_next_layer_create(){
+    layer_create_next = layer_create_next + 1;
+    return layer_create_next;
+}
+
+int param_finish = 0;
+int param_finish_1 = 0;
 
 double infer_start =0;
 double infer_end =0;
@@ -56,6 +189,13 @@ double pipe_time =0;
 double for_skp_time=0;
 double for_cal_time=0;
 
+void Delay_ms(int ms)
+{
+    struct timeval delay;
+    delay.tv_sec = 0;
+    delay.tv_usec = ms * 1000; // 20 ms
+    select(0, NULL, NULL, NULL, &delay);
+}
 
 namespace ncnn {
 int current_layer_idx_f2p =0;
@@ -229,25 +369,73 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, cons
     }
 #endif
     double starts = ncnn::get_current_time();
-
-    while (layer_index >= ncnn::current_layer_idx_p2i ){
-          sleep(0);
+    if(layer_index==1){
+        infer_start = starts;
     }
+
+//    printf("%d, %d\n", layer_index, ncnn::current_layer_idx_p2i);
+//    pthread_mutex_lock(&infer_lock);
+//    while (layer_index >= ncnn::current_layer_idx_p2i ){
+//        pthread_cond_wait(&infer_cond, &infer_lock);
+//    }
+//    pthread_mutex_unlock(&infer_lock);
+    syn_wait(infer_syn, layer_index);
+
 
     double ends = ncnn::get_current_time();
     double times = ends - starts;
-//    printf("%f\n", times);
+//    if(times>0.0015)
+//        printf("%d %f\n", layer_index, times);
     for_skp_time+=times;
 //    fprintf(stderr, "             START do forward %s %d %d \n", layer->name.c_str(), layer_index, ncnn::current_layer_idx_p2i-1);
+
+//    for(int i=0; i < blob_mats.size(); i++){
+//        printf("%d, dims = %d %zu\n", i, blob_mats[0].dims, blob_mats.size());
+//    }
+//    printf("blob_mats.size()=%zu", blob_mats.size());
+//    Delay_ms(10);
+//    sleep(1);
     double start = ncnn::get_current_time();
-    if(layer_index==1){
-        infer_start = ncnn::get_current_time();
-    }
+//    printf("ffor\n");
+//    std::cout<<"=====forward cpu[S]"<< layer_index<<"  "<<layer->name.c_str();
+//    std::cout<<blob_mats.size()<<std::endl;
     int ret = do_forward_layer(layer, blob_mats, opt);
+//    float* ptr = (float*)blob_mats[0].data;
+//    printf("%d %f\n",layer_index,  *ptr);
+//    printf("=====forward cpu%d %d %s\n", sched_getcpu(), layer_index, layer->name.c_str());
+//    printf("=====forward cpu%d %d %s\n", sched_getcpu(), layer_index, layer->name.c_str());
+//    std::cout<<"=====forward cpu"<< layer_index<<"  "<<layer->name.c_str()<<std::endl;
+//        printf("=====forward %s\n", layer->name.c_str());
+//    printf("for\n");
     double end = ncnn::get_current_time();
+
+
+//    if(layer_index == 7)
+//        printf("infer time = %f\n", end - start);
+
+//    layers[layer_index]->destroy_pipeline(opt);
+//    printf("before %lu\n", sizeof(* (layers[layer_index])));
+//    layers[layer_index];
+//    delete layer;
+//    printf("after %lu\n", sizeof(*(layers[layer_index])));
+//    printf("%s\n", layer->name.c_str());
+//    fprintf(stderr, "%f\n", end - start);
+//    fprintf(stderr, "%f\n", ends - starts);
+//    fprintf(stderr, "%.2f %.2f\n", ends - starts,  end - start);
+//    fprintf(stderr, "%s %f %f\n", layer->name.c_str(), ends - starts,  end - start);
+//    printf("+=====+forward %d [cpu%d] %s %f \n",  layer_index, sched_getcpu(),layer->name.c_str(), end - start);
+    if(save_time)
+    {
+        infer_starts[layer_index] = (start - save_start_time);
+        infer_ends[layer_index] = (end - save_start_time);
+    }
+
+//    layer->destroy_pipeline(opt);
     double time = end - start;
+//    if(layer->name == "conv2/3x3")
+//        fprintf(stderr, "%6.3f,", time);
     for_cal_time+=time;
-//    fprintf(stderr, "%f\n", time);
+//    printf("   %f, %f\n", time, for_cal_time);
 //    fprintf(stderr, "             do forward %7.2f %s %d %d\n", time, layer->name.c_str(), layer_index, ncnn::current_layer_idx_p2i-1);
 //    fprintf(stderr, "fwrd: start %7.2f end: %7.2f %s %d %d time %f\n", start-dr_start, end-dr_start, layer->name.c_str(), layer_index, ncnn::current_layer_idx_p2i-1,time);
 
@@ -274,6 +462,7 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, cons
 }
 
 #if NCNN_VULKAN
+double tt=0;
 int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, std::vector<VkMat>& blob_mats_gpu, VkCompute& cmd, const Option& opt) const
 {
     const Layer* layer = layers[layer_index];
@@ -296,6 +485,7 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, std:
 
         if (layer->support_vulkan)
         {
+//            double s = ncnn::get_current_time();
             if (blob_mats_gpu[bottom_blob_index].dims == 0)
             {
                 // host to buffer
@@ -307,6 +497,9 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, std:
                     blob_mats[bottom_blob_index].release();
                 }
             }
+//            double e = ncnn::get_current_time();
+//            printf("=+%d %f\n",blobs[bottom_blob_index].producer,  e-s);
+//            tt+= e-s;
         }
         else
         {
@@ -345,6 +538,7 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, std:
 
             if (layer->support_vulkan)
             {
+//                double s = ncnn::get_current_time();
                 if (blob_mats_gpu[bottom_blob_index].dims == 0)
                 {
                     // host to buffer
@@ -356,6 +550,9 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, std:
                         blob_mats[bottom_blob_index].release();
                     }
                 }
+//                double e = ncnn::get_current_time();
+//                printf("=-%d %f\n",blobs[bottom_blob_index].producer, e-s);
+//                tt+= e-s;
             }
             else
             {
@@ -407,7 +604,21 @@ int NetPrivate::forward_layer(int layer_index, std::vector<Mat>& blob_mats, std:
 #if NCNN_BENCHMARK
         cmd.record_write_timestamp(layer_index * 2);
 #endif
+        double starts = ncnn::get_current_time();
+        if(layer_index==1){
+            infer_start = starts;
+        }
+        syn_wait(infer_syn, layer_index);
+        double ends = ncnn::get_current_time();
+        for_skp_time += ends-starts;
+
+        double start = ncnn::get_current_time();
         ret = do_forward_layer(layer, blob_mats_gpu, cmd, opt);
+        double end = ncnn::get_current_time();
+        for_cal_time += end-start;
+        tt+= end-start;
+    //        printf("%d, %s, %f, %f\n", layer_index, layer->name.c_str(), end - start, end -strat0);
+//        printf("%d, %f  %f\n", layer_index, end -start, tt);
 #if NCNN_BENCHMARK
         cmd.record_write_timestamp(layer_index * 2 + 1);
 #endif
@@ -919,6 +1130,8 @@ int NetPrivate::do_forward_layer(const Layer* layer, std::vector<Mat>& blob_mats
 
         Mat& bottom_blob_ref = blob_mats[bottom_blob_index];
         Mat bottom_blob;
+//        int csize = bottom_blob_ref.w*bottom_blob_ref.h*bottom_blob_ref.c*bottom_blob_ref.elempack*sizeof(bottom_blob_ref.data)/1024;
+//        printf("%d bottom_blob_ref.dims=%d w=%d, h=%d, c=%d, el=%d, %lu %d\n", bottom_blob_index,bottom_blob_ref.dims,bottom_blob_ref.w, bottom_blob_ref.h, bottom_blob_ref.c, bottom_blob_ref.elempack, sizeof(bottom_blob_ref.data), csize);
 
         if (opt.lightmode)
         {
@@ -952,6 +1165,13 @@ int NetPrivate::do_forward_layer(const Layer* layer, std::vector<Mat>& blob_mats
 //            double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
 //            printf("forward inplace %f\n",  end - start);
 
+            int ccsize = bottom_top_blob.w*bottom_top_blob.h*bottom_top_blob.c*bottom_top_blob.elempack*sizeof(bottom_top_blob.data)/1024;
+//            printf("%d %s bottom_top_blob.dims=%d w=%d, h=%d, c=%d, el=%d, %lu %d\n", bottom_blob_index,layer->name.c_str(),bottom_top_blob.dims,bottom_top_blob.w, bottom_top_blob.h, bottom_top_blob.c, bottom_top_blob.elempack, sizeof(bottom_top_blob.data), ccsize);
+//            printf("%s\n", layer->name.c_str());
+//            printf("%d*%d*%d*%d\n", bottom_top_blob.w, bottom_top_blob.h, bottom_top_blob.c, bottom_top_blob.elempack);
+//            printf("\n");
+//            printf("%d\n", ccsize+0);
+
             if (ret != 0)
                 return ret;
 
@@ -961,6 +1181,8 @@ int NetPrivate::do_forward_layer(const Layer* layer, std::vector<Mat>& blob_mats
         else
         {
             Mat top_blob;
+            int ccsize = bottom_blob.w*bottom_blob.h*bottom_blob.c*bottom_blob.elempack*sizeof(bottom_blob.data)/1024;
+//            printf("%d %s bottom_blob.dims=%d w=%d, h=%d, c=%d, el=%d, %lu %d\n", bottom_blob_index,layer->name.c_str(),bottom_blob.dims,bottom_blob.w, bottom_blob.h, bottom_blob.c, bottom_blob.elempack, sizeof(bottom_blob.data), ccsize);
 
 //            struct timeval tv;
 //            gettimeofday(&tv, NULL);
@@ -968,10 +1190,18 @@ int NetPrivate::do_forward_layer(const Layer* layer, std::vector<Mat>& blob_mats
 
             int ret = layer->forward(bottom_blob, top_blob, opt);
 
+//            int tsize = top_blob.w*top_blob.h*top_blob.c*top_blob.elempack*sizeof(top_blob.data)/1024;
+//            printf("%d top_blob.dims=%d w=%d, h=%d, c=%d, el=%d, %lu %d\n", bottom_blob_index,top_blob.dims,top_blob.w, top_blob.h, top_blob.c, top_blob.elempack, sizeof(top_blob.data), tsize);
+//            printf("%s\n", layer->name.c_str());
+//            printf("%d*%d*%d*%d\n", bottom_blob.w, bottom_blob.h, bottom_blob.c, bottom_blob.elempack);
+//            printf("%d*%d*%d*%d\t", top_blob.w, top_blob.h, top_blob.c, top_blob.elempack);
+//            printf("%d\n", ccsize+tsize);
+
 //            struct timeval tv1;
 //            gettimeofday(&tv1, NULL);
 //            double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
-//            printf("forward %f\n",  end - start);
+//            printf("forward %s %f\n",  layer->name.c_str(), end - start);
+//            printf("%f\n", end - start);
 
             if (ret != 0)
                 return ret;
@@ -1158,7 +1388,25 @@ int NetPrivate::do_forward_layer(const Layer* layer, std::vector<VkMat>& blob_ma
         else
         {
             std::vector<VkMat> top_blobs(layer->tops.size());
+
+//            struct timeval tv0;
+//            gettimeofday(&tv0, NULL);
+//            double start = tv0.tv_sec * 1000.0 + tv0.tv_usec / 1000.0;
+
             int ret = layer->forward(bottom_blobs, top_blobs, cmd, opt);
+
+            //            int tsize = top_blob.w*top_blob.h*top_blob.c*top_blob.elempack*sizeof(top_blob.data)/1024;
+            //            printf("%d top_blob.dims=%d w=%d, h=%d, c=%d, el=%d, %lu %d\n", bottom_blob_index,top_blob.dims,top_blob.w, top_blob.h, top_blob.c, top_blob.elempack, sizeof(top_blob.data), tsize);
+            //            printf("%s\n", layer->name.c_str());
+            //            printf("%d*%d*%d*%d\n", bottom_blob.w, bottom_blob.h, bottom_blob.c, bottom_blob.elempack);
+            //            printf("%d*%d*%d*%d\t", top_blob.w, top_blob.h, top_blob.c, top_blob.elempack);
+            //            printf("%d\n", ccsize+tsize);
+
+//            struct timeval tv1;
+//            gettimeofday(&tv1, NULL);
+//            double end = tv1.tv_sec * 1000.0 + tv1.tv_usec / 1000.0;
+//            printf("forward %s %f\n",  layer->name.c_str(), end - start);
+//            printf("%f\n", end - start);
             if (ret != 0)
                 return ret;
 
@@ -1934,7 +2182,6 @@ int Net::load_model(const DataReader& dr)
         int cret = layer->create_pipeline(opt1);
         double end1 = ncnn::get_current_time();
         double time1 = end1 - start1;
-//        fprintf(stderr, "             %d in pipeline time %f\n", i, time1);
         if (cret != 0)
         {
 #if NCNN_STRING
@@ -1981,6 +2228,7 @@ int Net::load_model(const DataReader& dr)
 
 int Net::load_model_dr(const DataReader& dr)
 {
+    printf("_____    load_model_dr   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     if (d->layers.empty())
     {
         NCNN_LOGE("network graph not ready");
@@ -1997,6 +2245,7 @@ int Net::load_model_dr(const DataReader& dr)
     for (int i = 0; i < layer_count; i++)
     {
         Layer* layer = d->layers[i];
+        Option opt1 = opt;
 
         //Here we found inconsistent content in the parameter file.
         if (!layer)
@@ -2007,13 +2256,56 @@ int Net::load_model_dr(const DataReader& dr)
         }
 
 //        fprintf(stderr, "            START %s %d in load model time \n", d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1);
+//        printf("\n----------------start read %s\n", layer->name.c_str());
+//        printf("%d start  %zu\n", i,DataReaderFromStdio_size);
+//        if(i >0)
+//        {
+//            int tmp[] = {1,5,7,12,14,16,18,20,23,27,29,31,33,35,38,43,45,47,49,51,54,58,60,62,64,66,69,73,75,77,79,81,84,88,90,92,94,96,99,103,105,107,109,111,114,119,121,123,125,127,130,134,136,138,140,142,145};
+//            int flag = 0;
+//            for (int ii :tmp)
+//            {
+//                if(i == ii){
+//                    flag = 1;
+//                }
+//                else
+//                    flag = 0;
+//            }
+//            if (flag)
+////                if (arm_weight_file_seek_Vectors[i - 1] < arm_weight_file_seek_Vectors[i])
+//            {
+//                load_weight_flag = 0;
+//            }
+//            else if(i == layer_count - 1){
+//                load_weight_flag = 0;
+//            }
+//            else
+//            {
+//                load_weight_flag = 1;
+//            }
+//        }
+        if(TEST_)
+        {
+//            printf("%zu, ", DataReaderFromStdio_size);
+            DR_file_Vectors.push_back(DataReaderFromStdio_size);
+        }
         double start1 = ncnn::get_current_time();
         int lret = layer->load_model(mb);
+//        printf("%d %zu\n", i,DataReaderFromStdio_size);
+//        syn_act(create_syn, i);
         double end1 = ncnn::get_current_time();
         double time1 = end1 - start1;
-        ncnn::current_layer_idx_f2p =i +1;
+
+//        if(i == 7)
+//            printf("load time = %f\n", end1 - start1);
+
+//        pthread_mutex_lock(&pipe_lock);
+//        ncnn::current_layer_idx_f2p =i +1;
+//        pthread_mutex_unlock(&pipe_lock);
+//        pthread_cond_signal(&pipe_cond);
+        syn_act(create_syn, i);
 
 //        fprintf(stderr, "%f\n", time1);
+//        printf("----------------end read %s\n", layer->name.c_str());
 //        fprintf(stderr, "load: start %7.2f end: %7.2f %s %d time %f\n", start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1,time1);
 
         //        fprintf(stderr, "             %s %d in load model time %f\n", d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1, time1);
@@ -2040,8 +2332,347 @@ int Net::load_model_dr(const DataReader& dr)
 //    fprintf(stderr, "load model time %f\n", time_m);
     return ret;
 }
+int Net::load_model_dr(FILE* fp)
+{
+    DataReaderFromStdio dr(fp);
+    return load_model_dr(dr);
+}
+int Net::load_model_dr(const char* modelpath)
+{
+//    printf("load file %s\n", modelpath);
+    FILE* fp = fopen(modelpath, "rb");
+    if (!fp)
+    {
+        NCNN_LOGE("fopen %s failed", modelpath);
+        return -1;
+    }
+
+    int ret = load_model_dr(fp);
+    fclose(fp);
+    return ret;
+}
+
+int Net::load_model_dr_cpu0(const DataReader& dr)
+{
+    printf("_____    load_model_dr_cpu0   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    if (d->layers.empty())
+    {
+        NCNN_LOGE("network graph not ready");
+        return -1;
+    }
+
+    int layer_count = (int)d->layers.size();
+
+    // load file
+    int ret = 0;
+
+    double start_m = ncnn::get_current_time();
+    ModelBinFromDataReader mb(dr);
+    for (int i = 0; i < layer_count; i++)
+    {
+        if(i%2==0){
+            continue;
+        }
+        Layer* layer = d->layers[i];
+        Option opt1 = opt;
+
+        //Here we found inconsistent content in the parameter file.
+        if (!layer)
+        {
+            NCNN_LOGE("load_model error at layer %d, parameter file has inconsistent content.", i);
+            ret = -1;
+            break;
+        }
+
+        //        fprintf(stderr, "            START %s %d in load model time \n", d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1);
+        double start1 = ncnn::get_current_time();
+        int lret = layer->load_model(mb);
+
+        double end1 = ncnn::get_current_time();
+        double time1 = end1 - start1;
+
+        pthread_mutex_lock(&pipe_lock);
+        ncnn::current_layer_idx_f2p =i +1;
+        pthread_mutex_unlock(&pipe_lock);
+        pthread_cond_signal(&pipe_cond);
+
+        //        fprintf(stderr, "%f\n", time1);
+        //        printf("%s\n", layer->name.c_str());
+        //        fprintf(stderr, "load: start %7.2f end: %7.2f %s %d time %f\n", start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1,time1);
+
+        //        fprintf(stderr, "             %s %d in load model time %f\n", d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1, time1);
+        if (lret != 0)
+        {
+#if NCNN_STRING
+            NCNN_LOGE("layer load_model %d %s failed", i, layer->name.c_str());
+#else
+            NCNN_LOGE("layer load_model %d failed", i);
+#endif
+            ret = -1;
+            break;
+        }
+
+        if (layer->support_int8_storage)
+        {
+            // no int8 gpu support yet
+            opt.use_vulkan_compute = false;
+        }
+    }
+
+    double end_m = ncnn::get_current_time();
+    double time_m = end_m - start_m;
+    //    fprintf(stderr, "load model time %f\n", time_m);
+    return ret;
+}
+int Net::load_model_dr_cpu0(FILE* fp)
+{
+    DataReaderFromStdio dr(fp);
+    return load_model_dr(dr);
+}
+int Net::load_model_dr_cpu0(const char* modelpath)
+{
+    printf("load file %s\n", modelpath);
+    FILE* fp = fopen(modelpath, "rb");
+    if (!fp)
+    {
+        NCNN_LOGE("fopen %s failed", modelpath);
+        return -1;
+    }
+
+    int ret = load_model_dr(fp);
+    fclose(fp);
+    return ret;
+}
+
+
+int Net::load_model_dr_cpu1(const DataReader& dr)
+{
+    printf("_____    load_model_dr_cpu1   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    if (d->layers.empty())
+    {
+        NCNN_LOGE("network graph not ready");
+        return -1;
+    }
+
+    int layer_count = (int)d->layers.size();
+
+    // load file
+    int ret = 0;
+
+    double start_m = ncnn::get_current_time();
+    ModelBinFromDataReader mb(dr);
+    for (int i = 0; i < layer_count; i++)
+    {
+        if(i%2!=0){
+            continue;
+        }
+        Layer* layer = d->layers[i];
+        Option opt1 = opt;
+
+        //Here we found inconsistent content in the parameter file.
+        if (!layer)
+        {
+            NCNN_LOGE("load_model error at layer %d, parameter file has inconsistent content.", i);
+            ret = -1;
+            break;
+        }
+
+        //        fprintf(stderr, "            START %s %d in load model time \n", d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1);
+        double start1 = ncnn::get_current_time();
+        int lret = layer->load_model(mb);
+
+        double end1 = ncnn::get_current_time();
+        double time1 = end1 - start1;
+
+//        pthread_mutex_lock(&pipe_lock);
+//        ncnn::current_layer_idx_f2p =i +1;
+//        pthread_mutex_unlock(&pipe_lock);
+//        pthread_cond_signal(&pipe_cond);
+
+        //        fprintf(stderr, "%f\n", time1);
+        //        printf("%s\n", layer->name.c_str());
+        //        fprintf(stderr, "load: start %7.2f end: %7.2f %s %d time %f\n", start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1,time1);
+
+        //        fprintf(stderr, "             %s %d in load model time %f\n", d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1, time1);
+        if (lret != 0)
+        {
+#if NCNN_STRING
+            NCNN_LOGE("layer load_model %d %s failed", i, layer->name.c_str());
+#else
+            NCNN_LOGE("layer load_model %d failed", i);
+#endif
+            ret = -1;
+            break;
+        }
+
+        if (layer->support_int8_storage)
+        {
+            // no int8 gpu support yet
+            opt.use_vulkan_compute = false;
+        }
+    }
+
+    double end_m = ncnn::get_current_time();
+    double time_m = end_m - start_m;
+    //    fprintf(stderr, "load model time %f\n", time_m);
+    return ret;
+}
+int Net::load_model_dr_cpu1(FILE* fp)
+{
+    DataReaderFromStdio dr(fp);
+    return load_model_dr(dr);
+}
+int Net::load_model_dr_cpu1(const char* modelpath)
+{
+    printf("load file %s\n", modelpath);
+    FILE* fp = fopen(modelpath, "rb");
+    if (!fp)
+    {
+        NCNN_LOGE("fopen %s failed", modelpath);
+        return -1;
+    }
+
+    int ret = load_model_dr(fp);
+    fclose(fp);
+    return ret;
+}
+
+int Net::load_model_layer(const ModelBinFromDataReader& mb, int layer_idx){
+
+    double start = get_current_time();
+    // load file
+    int ret = 0;
+//    printf("=====read cpu%d %d %s\n", sched_getcpu(), layer_idx, d->layers[layer_idx]->name.c_str());
+
+    Layer* layer = d->layers[layer_idx];
+    Option opt1 = opt;
+
+    //Here we found inconsistent content in the parameter file.
+    if (!layer)
+    {
+        NCNN_LOGE("load_model error at layer %d, parameter file has inconsistent content.", layer_idx);
+        ret = -1;
+    }
+    if(TEST_)
+    {
+        //        printf("%zu, ", DataReaderFromStdio_size);
+        DR_file_Vectors.push_back(DataReaderFromStdio_size);
+    }
+    double start1 = ncnn::get_current_time();
+//    printf("=====read cpu%d %d %s\n", sched_getcpu(), layer_idx, layer->name.c_str());
+
+    int lret = layer->load_model(mb);
+
+    double end1 = ncnn::get_current_time();
+//    double time1 = end1 - start1;
+//    printf("load model layer %d %f\n", layer_idx, time1);
+
+//    printf("+=====+read %d [cpu%d] %s %f \n",  layer_idx, sched_getcpu(), layer->name.c_str(), end1 - start1);
+    if(save_time)
+    {
+        read_starts[layer_idx] = (start1 - save_start_time);
+        read_ends[layer_idx] = (end1 - save_start_time);
+    }
+    if (lret != 0)
+    {
+#if NCNN_STRING
+        NCNN_LOGE("layer load_model %d %s failed", layer_idx, layer->name.c_str());
+#else
+        NCNN_LOGE("layer load_model %d failed", layer_idx);
+#endif
+        ret = -1;
+    }
+
+    if (layer->support_int8_storage)
+    {
+        // no int8 gpu support yet
+        opt.use_vulkan_compute = false;
+    }
+
+    double end = get_current_time();
+//    printf("r,%d,%d,%.3f\n", sched_getcpu(), layer_idx, end-start);
+    return ret;
+}
+
+int Net::load_model_dr_layer(const DataReader& dr, int layer_idx)
+{
+    printf("_____    load_model_dr_layer   tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    if (d->layers.empty())
+    {
+        NCNN_LOGE("network graph not ready");
+        return -1;
+    }
+
+    int layer_count = (int)d->layers.size();
+
+    // load file
+    int ret = 0;
+
+    ModelBinFromDataReader mb(dr);
+
+    Layer* layer = d->layers[layer_idx];
+    Option opt1 = opt;
+
+    //Here we found inconsistent content in the parameter file.
+    if (!layer)
+    {
+        NCNN_LOGE("load_model error at layer %d, parameter file has inconsistent content.", layer_idx);
+        ret = -1;
+    }
+
+    //        fprintf(stderr, "            START %s %d in load model time \n", d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1);
+    double start1 = ncnn::get_current_time();
+    int lret = layer->load_model(mb);
+
+    double end1 = ncnn::get_current_time();
+    double time1 = end1 - start1;
+    printf("load model layer %d %f\n", layer_idx, time1);
+
+    //        fprintf(stderr, "%f\n", time1);
+    //        printf("%s\n", layer->name.c_str());
+    //        fprintf(stderr, "load: start %7.2f end: %7.2f %s %d time %f\n", start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1,time1);
+
+    //        fprintf(stderr, "             %s %d in load model time %f\n", d->layers[i]->name.c_str(), ncnn::current_layer_idx_f2p-1, time1);
+    if (lret != 0)
+    {
+#if NCNN_STRING
+        NCNN_LOGE("layer load_model %d %s failed", layer_idx, layer->name.c_str());
+#else
+        NCNN_LOGE("layer load_model %d failed", layer_idx);
+#endif
+        ret = -1;
+    }
+
+    if (layer->support_int8_storage)
+    {
+        // no int8 gpu support yet
+        opt.use_vulkan_compute = false;
+    }
+    return ret;
+}
+int Net::load_model_dr_layer(FILE* fp, int layer_idx)
+{
+    DataReaderFromStdio dr(fp);
+    return load_model_dr_layer(dr, layer_idx);
+}
+int Net::load_model_dr_layer(const char* modelpath, int layer_idx)
+{
+    printf("load file %s\n", modelpath);
+    FILE* fp = fopen(modelpath, "rb");
+    if (!fp)
+    {
+        NCNN_LOGE("fopen %s failed", modelpath);
+        return -1;
+    }
+
+    int ret = load_model_dr_layer(fp, layer_idx);
+    fclose(fp);
+    return ret;
+}
+
 int Net::load_model_pipe()
 {
+    printf("_____    load_model_pipe tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
     int ret = 0;
     int layer_count = (int)d->layers.size();
 #if NCNN_VULKAN
@@ -2060,7 +2691,177 @@ int Net::load_model_pipe()
     double start_p = ncnn::get_current_time();
     double skp_time = 0;
     double pipe_time = 0;
+    double upload_time=0;
     for (int i = 0; i < layer_count; i++)
+    {
+//        printf("c,%d,%d\n", sched_getcpu(), i);
+        Layer* layer = d->layers[i];
+
+        Option opt1 = opt;
+#if NCNN_VULKAN
+        if (opt.use_vulkan_compute)
+        {
+            if (!layer->support_image_storage) opt1.use_image_storage = false;
+        }
+        //upload_model
+#endif // NCNN_VULKAN
+        double starts = ncnn::get_current_time();
+
+//        pthread_mutex_lock(&pipe_lock);
+//        while (i  >= ncnn::current_layer_idx_f2p ){
+//            pthread_cond_wait(&pipe_cond, &pipe_lock);
+//        }
+//        pthread_mutex_unlock(&pipe_lock);
+
+        syn_wait(create_syn, i);
+
+        double ends = ncnn::get_current_time();
+        double times = ends - starts;
+        skp_time+=times;
+//        fprintf(stderr, "START pipe:  %s %d %d in pipeline time\n", d->layers[i]->name.c_str(), i-1, ncnn::current_layer_idx_f2p);
+        if(i==1){
+            pipe_start = ncnn::get_current_time();
+        }
+//        int cpu_ = sched_getcpu();
+//        fseek(arm_weight_file_reads[cpu_], arm_weight_file_seek_Vectors[i-1], SEEK_SET);
+        double start1 = ncnn::get_current_time();
+//        printf("pipe %s\n", layer->name.c_str());
+//        printf("%d\n", i);
+        int cret = layer->create_pipeline(opt1);
+//        printf("%s tid=%ld,cpu=%d\n", d->layers[i]->name.c_str(), pthread_self(), sched_getcpu());
+//        std::cout<< typeid(layer).name()<<std::endl;
+//        printf("%s\n", layer->name.c_str());
+        double end1 = ncnn::get_current_time();
+
+        if(USE_PACK_ARM&&ARM_W_TEST){
+            //arm_weight_file_seek_save
+            arm_weight_file_seek_Vectors[i] = arm_weight_file_seek_save;
+//            if(arm_weight_file_seek_Vectors[i] != arm_weight_file_seek_Vectors[i-1]){
+//                printf("%d,", i);
+//            }
+        }
+//        if(i == 7)
+//            printf("pipe time = %f\n", end1 - start1);
+
+//        printf("%d,%d,%f,%s\n", sched_getcpu(), i, end1 - start1, layer->name.c_str());
+//        syn_act(infer_syn, i);
+        double time1 = end1 - start1;
+        pipe_time += time1;
+
+//        pthread_mutex_lock(&infer_lock);
+//        ncnn::current_layer_idx_p2i =i+1;
+//        pthread_mutex_unlock(&infer_lock);
+//        pthread_cond_signal(&infer_cond);
+        syn_act(infer_syn, i);
+        //        fprintf(stderr, "%f\n", time1);
+//        fprintf(stderr, "pipe:time %7.4f %s \n", time1,  d->layers[i]->name.c_str());
+//        fprintf(stderr, "pipe:time %7.4f start %7.2f end: %7.2f %s %d %d \n", time1, start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), i, ncnn::current_layer_idx_f2p);
+//        if(layer->name == "conv2/3x3")
+//        fprintf(stderr, "%6.3f,", time1);
+//        printf("%s\n",  d->layers[i]->name.c_str());
+//        printf("%lu\n", sizeof(pipe_t_list)/ sizeof(pipe_t_list[0]));
+
+
+        if (cret != 0)
+        {
+#if NCNN_STRING
+            NCNN_LOGE("layer create_pipeline %d %s failed", i, layer->name.c_str());
+#else
+            NCNN_LOGE("layer create_pipeline %d failed", i);
+#endif
+            ret = -1;
+            break;
+        }
+#if NCNN_VULKAN
+        double svk = ncnn::get_current_time();
+        if (opt.use_vulkan_compute)
+        {
+            ncnn::VkTransfer cmd(d->vkdev);
+
+            // create gpu device allocator if null
+            if (!d->weight_vkallocator)
+            {
+                d->weight_vkallocator = new VkWeightAllocator(d->vkdev);
+            }
+            if (!d->weight_staging_vkallocator)
+            {
+                d->weight_staging_vkallocator = new VkWeightStagingAllocator(d->vkdev);
+            }
+
+            Option opt_upload = opt;
+            opt_upload.blob_vkallocator = d->weight_vkallocator;
+            opt_upload.workspace_vkallocator = d->weight_vkallocator;
+            opt_upload.staging_vkallocator = d->weight_staging_vkallocator;
+            int uret = layer->upload_model(cmd, opt_upload);
+            if (uret != 0)
+            {
+                NCNN_LOGE("layer upload_model %d failed", (int)i);
+                return -1;
+            }
+        }
+        double evk = ncnn::get_current_time();
+        upload_time += evk - svk;
+#endif //NCNN_VULKAN
+    }
+    printf("_____    skp_time=%f pipe_time=%f upload_time=%f\n", skp_time, pipe_time, upload_time);
+
+    double end_p = ncnn::get_current_time();
+    double time_p = end_p - start_p;
+//    fprintf(stderr, "pipeline time %f\n", time_p);
+    if (opt.use_local_pool_allocator)
+    {
+        if (opt.blob_allocator == 0)
+        {
+            if (!d->local_blob_allocator)
+            {
+                d->local_blob_allocator = new PoolAllocator;
+                d->local_blob_allocator->set_size_compare_ratio(0.f);
+            }
+        }
+        if (opt.workspace_allocator == 0)
+        {
+            if (!d->local_workspace_allocator)
+            {
+                d->local_workspace_allocator = new PoolAllocator;
+                d->local_workspace_allocator->set_size_compare_ratio(0.5f);
+            }
+        }
+    }
+
+//#if NCNN_VULKAN
+//    double upload_start = ncnn::get_current_time();
+//    if (opt.use_vulkan_compute)
+//    {
+//        d->upload_model();
+//    }
+//    double upload_end = ncnn::get_current_time();
+//    fprintf(stderr, "VK upload time %f\n", upload_end - upload_start);
+//#endif // NCNN_VULKAN
+    return ret;
+}
+
+int Net::load_model_pipe_cpu1()
+{
+    printf("_____    load_model_pipe_cpu1 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    int ret = 0;
+    int layer_count = (int)d->layers.size();
+#if NCNN_VULKAN
+    if (opt.use_vulkan_compute)
+    {
+        if (!opt.pipeline_cache)
+        {
+            if (!d->pipeline_cache)
+                d->pipeline_cache = new PipelineCache(d->vkdev);
+            opt.pipeline_cache = d->pipeline_cache;
+        }
+    }
+#endif // NCNN_VULKAN
+
+       //    sleep(10);
+    double start_p = ncnn::get_current_time();
+    double skp_time = 0;
+    double pipe_time = 0;
+    for (int i = 0; i < 60; i++)
     {
         Layer* layer = d->layers[i];
 
@@ -2071,27 +2872,35 @@ int Net::load_model_pipe()
             if (!layer->support_image_storage) opt1.use_image_storage = false;
         }
 #endif // NCNN_VULKAN
-        double starts = ncnn::get_current_time();
+        pthread_mutex_lock(&pipe_lock);
         while (i  >= ncnn::current_layer_idx_f2p ){
-            sleep(0);
+            pthread_cond_wait(&pipe_cond, &pipe_lock);
+            //            sleep(0);
         }
+        pthread_mutex_unlock(&pipe_lock);
 
-        double ends = ncnn::get_current_time();
-        double times = ends - starts;
-        skp_time+=times;
-//        fprintf(stderr, "            START %s %d %d in pipeline time\n", d->layers[i]->name.c_str(), i-1, ncnn::current_layer_idx_f2p);
-        if(i==1){
+        if(i==0){
             pipe_start = ncnn::get_current_time();
+            printf("----------------------start %f\n", pipe_start);
         }
         double start1 = ncnn::get_current_time();
+
         int cret = layer->create_pipeline(opt1);
+
         double end1 = ncnn::get_current_time();
         double time1 = end1 - start1;
         pipe_time += time1;
-        ncnn::current_layer_idx_p2i =i+1;
-        fprintf(stderr, "%f\n", time1);
 
-//        fprintf(stderr, "pipe: start %7.2f end: %7.2f %s %d %d time %f\n", start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), i, ncnn::current_layer_idx_f2p,time1);
+        pthread_mutex_lock(&infer_lock);
+        ncnn::current_layer_idx_p2i =i+1;
+        pthread_mutex_unlock(&infer_lock);
+        pthread_cond_signal(&infer_cond);
+        //        fprintf(stderr, "%f\n", time1);
+
+        //        fprintf(stderr, "pipe:time %7.4f start %7.2f end: %7.2f %s %d %d \n", time1, start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), i, ncnn::current_layer_idx_f2p);
+        //        fprintf(stderr, "%6.3f,", time1);
+        //        printf("%s\n",  d->layers[i]->name.c_str());
+        //        printf("%lu\n", sizeof(pipe_t_list)/ sizeof(pipe_t_list[0]));
         if (cret != 0)
         {
 #if NCNN_STRING
@@ -2105,9 +2914,7 @@ int Net::load_model_pipe()
     }
     printf("skp_time=%f pipe_time=%f\n", skp_time, pipe_time);
 
-    double end_p = ncnn::get_current_time();
-    double time_p = end_p - start_p;
-//    fprintf(stderr, "pipeline time %f\n", time_p);
+
     if (opt.use_local_pool_allocator)
     {
         if (opt.blob_allocator == 0)
@@ -2137,7 +2944,406 @@ int Net::load_model_pipe()
 
     return ret;
 }
+int Net::load_model_pipe_cpu2()
+{
+    printf("_____    load_model_pipe_cpu2 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    int ret = 0;
+    int layer_count = (int)d->layers.size();
+#if NCNN_VULKAN
+    if (opt.use_vulkan_compute)
+    {
+        if (!opt.pipeline_cache)
+        {
+            if (!d->pipeline_cache)
+                d->pipeline_cache = new PipelineCache(d->vkdev);
+            opt.pipeline_cache = d->pipeline_cache;
+        }
+    }
+#endif // NCNN_VULKAN
 
+       //    sleep(10);
+    double start_p = ncnn::get_current_time();
+    double skp_time = 0;
+    double pipe_time = 0;
+    for (int i = 0; i < layer_count; i++)
+    {
+        if(i%2==0){
+            continue;
+        }
+//        printf("pip %d\n", i);
+        Layer* layer = d->layers[i];
+
+        Option opt1 = opt;
+#if NCNN_VULKAN
+        if (opt.use_vulkan_compute)
+        {
+            if (!layer->support_image_storage) opt1.use_image_storage = false;
+        }
+#endif // NCNN_VULKAN
+
+        pthread_mutex_lock(&pipe_lock);
+        while (i  >= ncnn::current_layer_idx_f2p ){
+            pthread_cond_wait(&pipe_cond, &pipe_lock);
+            //            sleep(0);
+        }
+        pthread_mutex_unlock(&pipe_lock);
+
+        if(i==0){
+            pipe_start = ncnn::get_current_time();
+        }
+        double start1 = ncnn::get_current_time();
+
+        int cret = layer->create_pipeline(opt1);
+
+        double end1 = ncnn::get_current_time();
+        double time1 = end1 - start1;
+        pipe_time += time1;
+
+        pthread_mutex_lock(&infer_lock);
+        ncnn::current_layer_idx_p2i =i+1;
+        pthread_mutex_unlock(&infer_lock);
+        pthread_cond_signal(&infer_cond);
+        //        fprintf(stderr, "%f\n", time1);
+
+        //        fprintf(stderr, "pipe:time %7.4f start %7.2f end: %7.2f %s %d %d \n", time1, start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), i, ncnn::current_layer_idx_f2p);
+        //        fprintf(stderr, "%6.3f,", time1);
+        //        printf("%s\n",  d->layers[i]->name.c_str());
+        //        printf("%lu\n", sizeof(pipe_t_list)/ sizeof(pipe_t_list[0]));
+        if (cret != 0)
+        {
+#if NCNN_STRING
+            NCNN_LOGE("layer create_pipeline %d %s failed", i, layer->name.c_str());
+#else
+            NCNN_LOGE("layer create_pipeline %d failed", i);
+#endif
+            ret = -1;
+            break;
+        }
+
+        if(i==layer_count-1){
+            pipe_end = ncnn::get_current_time();
+            printf("------------------------pipe time ------------------%f\n", pipe_end-pipe_start);
+        }
+    }
+    printf("skp_time=%f pipe_time=%f\n", skp_time, pipe_time);
+
+
+    if (opt.use_local_pool_allocator)
+    {
+        if (opt.blob_allocator == 0)
+        {
+            if (!d->local_blob_allocator)
+            {
+                d->local_blob_allocator = new PoolAllocator;
+                d->local_blob_allocator->set_size_compare_ratio(0.f);
+            }
+        }
+        if (opt.workspace_allocator == 0)
+        {
+            if (!d->local_workspace_allocator)
+            {
+                d->local_workspace_allocator = new PoolAllocator;
+                d->local_workspace_allocator->set_size_compare_ratio(0.5f);
+            }
+        }
+    }
+
+#if NCNN_VULKAN
+    if (opt.use_vulkan_compute)
+    {
+        d->upload_model();
+    }
+#endif // NCNN_VULKAN
+
+    return ret;
+}
+int Net::load_model_pipe_cpu3()
+{
+    printf("_____    load_model_pipe_cpu3 tid=%d,cpu=%d\n", pthread_self(), sched_getcpu());
+    int ret = 0;
+    int layer_count = (int)d->layers.size();
+#if NCNN_VULKAN
+    if (opt.use_vulkan_compute)
+    {
+        if (!opt.pipeline_cache)
+        {
+            if (!d->pipeline_cache)
+                d->pipeline_cache = new PipelineCache(d->vkdev);
+            opt.pipeline_cache = d->pipeline_cache;
+        }
+    }
+#endif // NCNN_VULKAN
+
+       //    sleep(10);
+    double start_p = ncnn::get_current_time();
+    double skp_time = 0;
+    double pipe_time = 0;
+    for (int i = 0; i < layer_count; i++)
+    {
+        if(i%2!=0){
+            continue;
+        }
+//        printf("pip %d\n", i);
+        Layer* layer = d->layers[i];
+
+        Option opt1 = opt;
+#if NCNN_VULKAN
+        if (opt.use_vulkan_compute)
+        {
+            if (!layer->support_image_storage) opt1.use_image_storage = false;
+        }
+#endif // NCNN_VULKAN
+
+        pthread_mutex_lock(&pipe_lock);
+        while (i  >= ncnn::current_layer_idx_f2p ){
+            pthread_cond_wait(&pipe_cond, &pipe_lock);
+            //            sleep(0);
+        }
+        pthread_mutex_unlock(&pipe_lock);
+
+        if(i==0){
+            pipe_start = ncnn::get_current_time();
+        }
+        double start1 = ncnn::get_current_time();
+
+        int cret = layer->create_pipeline(opt1);
+
+        double end1 = ncnn::get_current_time();
+        double time1 = end1 - start1;
+        pipe_time += time1;
+
+//        pthread_mutex_lock(&infer_lock);
+//        ncnn::current_layer_idx_p2i =i+1;
+//        pthread_mutex_unlock(&infer_lock);
+//        pthread_cond_signal(&infer_cond);
+        //        fprintf(stderr, "%f\n", time1);
+
+        //        fprintf(stderr, "pipe:time %7.4f start %7.2f end: %7.2f %s %d %d \n", time1, start1-dr_start, end1-dr_start, d->layers[i]->name.c_str(), i, ncnn::current_layer_idx_f2p);
+        //        fprintf(stderr, "%6.3f,", time1);
+        //        printf("%s\n",  d->layers[i]->name.c_str());
+        //        printf("%lu\n", sizeof(pipe_t_list)/ sizeof(pipe_t_list[0]));
+        if (cret != 0)
+        {
+#if NCNN_STRING
+            NCNN_LOGE("layer create_pipeline %d %s failed", i, layer->name.c_str());
+#else
+            NCNN_LOGE("layer create_pipeline %d failed", i);
+#endif
+            ret = -1;
+            break;
+        }
+        if(i==layer_count-1){
+            pipe_end = ncnn::get_current_time();
+            printf("------------------------pipe time ------------------%f\n", pipe_end-pipe_start);
+        }
+    }
+    printf("skp_time=%f pipe_time=%f\n", skp_time, pipe_time);
+
+
+    if (opt.use_local_pool_allocator)
+    {
+        if (opt.blob_allocator == 0)
+        {
+            if (!d->local_blob_allocator)
+            {
+                d->local_blob_allocator = new PoolAllocator;
+                d->local_blob_allocator->set_size_compare_ratio(0.f);
+            }
+        }
+        if (opt.workspace_allocator == 0)
+        {
+            if (!d->local_workspace_allocator)
+            {
+                d->local_workspace_allocator = new PoolAllocator;
+                d->local_workspace_allocator->set_size_compare_ratio(0.5f);
+            }
+        }
+    }
+
+#if NCNN_VULKAN
+    if (opt.use_vulkan_compute)
+    {
+        d->upload_model();
+    }
+#endif // NCNN_VULKAN
+
+    return ret;
+}
+void Net::upload_models(){
+#if NCNN_VULKAN
+    if (opt.use_vulkan_compute)
+    {
+        d->upload_model();
+    }
+#endif // NCNN_VULKAN
+}
+
+int Net::load_pipe_layer(int layer_idx)
+{
+    static float tp=0;
+    int ret = 0;
+//    int layer_count = (int)d->layers.size();
+    Layer* layer = d->layers[layer_idx];
+
+    Option opt1 = opt;
+//    double start = get_current_time();
+#if NCNN_VULKAN
+    if (opt.use_vulkan_compute)
+    {
+        if (!opt.pipeline_cache)
+        {
+            if (!d->pipeline_cache)
+                d->pipeline_cache = new PipelineCache(d->vkdev);
+            opt.pipeline_cache = d->pipeline_cache;
+        }
+    }
+    if (opt.use_vulkan_compute)
+    {
+        if (!layer->support_image_storage) opt1.use_image_storage = false;
+    }
+#endif // NCNN_VULKAN
+
+
+//    syn_wait(create_syn, index);
+
+    double start_cp = ncnn::get_current_time();
+    int cret = layer->create_pipeline(opt1);
+    double end_cp = ncnn::get_current_time();
+
+//    printf("+=====+trans %d [cpu%d] %s %f \n",  layer_idx, sched_getcpu(), layer->name.c_str(), end_cp - start_cp);
+    if(save_time)
+    {
+        trans_starts[layer_idx] = (start_cp - save_start_time);
+        trans_ends[layer_idx] = (end_cp - save_start_time);
+    }
+//    printf("=====create cpu%d %d %s\n", sched_getcpu(), layer_idx, layer->name.c_str());
+//    printf("%d,%d,%f,%s\n", sched_getcpu(), layer_idx, end_cp - start_cp, layer->name.c_str());
+//    tp += (end_cp - start_cp);
+//    printf("tp, %f\n", tp);
+
+//    syn_act(infer_syn, index);
+
+    if (cret != 0)
+    {
+#if NCNN_STRING
+        NCNN_LOGE("layer create_pipeline %d %s failed", layer_idx, layer->name.c_str());
+#else
+        NCNN_LOGE("layer create_pipeline %d failed", layer_idx);
+#endif
+        ret = -1;
+    }
+#if NCNN_VULKAN
+    ////upload_model
+//    if (opt.use_vulkan_compute)
+//    {
+//        ncnn::VkTransfer cmd(d->vkdev);
+//
+//        // create gpu device allocator if null
+//        if (!d->weight_vkallocator)
+//        {
+//            d->weight_vkallocator = new VkWeightAllocator(d->vkdev);
+//        }
+//        if (!d->weight_staging_vkallocator)
+//        {
+//            d->weight_staging_vkallocator = new VkWeightStagingAllocator(d->vkdev);
+//        }
+//
+//        Option opt_upload = opt;
+//        opt_upload.blob_vkallocator = d->weight_vkallocator;
+//        opt_upload.workspace_vkallocator = d->weight_vkallocator;
+//        opt_upload.staging_vkallocator = d->weight_staging_vkallocator;
+//        //    double svk = ncnn::get_current_time();
+//        int uret = layer->upload_model(cmd, opt_upload);
+//        if (uret != 0)
+//        {
+//            NCNN_LOGE("layer upload_model %d failed", (int)layer_idx);
+//            return -1;
+//        }
+//    }
+    double evk = ncnn::get_current_time();
+#endif //NCNN_VULKAN
+
+    if (opt.use_local_pool_allocator)
+    {
+        if (opt.blob_allocator == 0)
+        {
+            if (!d->local_blob_allocator)
+            {
+                d->local_blob_allocator = new PoolAllocator;
+                d->local_blob_allocator->set_size_compare_ratio(0.f);
+            }
+        }
+        if (opt.workspace_allocator == 0)
+        {
+            if (!d->local_workspace_allocator)
+            {
+                d->local_workspace_allocator = new PoolAllocator;
+                d->local_workspace_allocator->set_size_compare_ratio(0.5f);
+            }
+        }
+    }
+
+//#if NCNN_VULKAN
+//    if (opt.use_vulkan_compute)
+//    {
+//        d->upload_model();
+//    }
+//#endif // NCNN_VULKAN
+
+//    double end = get_current_time();
+//    printf("c,%d,%d\n", sched_getcpu(), layer_idx);
+    return ret;
+}
+
+//Mutex upload_lock;
+int Net::upload_model_layer(int layer_idx){
+#if NCNN_VULKAN
+    static float tt=0;
+    double s = ncnn::get_current_time();
+//    MutexLockGuard lock(upload_lock);
+//    upload_lock.lock();
+    Layer* layer = d->layers[layer_idx];
+    if (opt.use_vulkan_compute)
+    {
+//        printf("=====upload cpu%d %d %s\n", sched_getcpu(), layer_idx, layer->name.c_str());
+        static ncnn::VkTransfer cmd(d->vkdev);
+//        printf("%d\n", &cmd);
+
+        // create gpu device allocator if null
+        if (!d->weight_vkallocator)
+        {
+            d->weight_vkallocator = new VkWeightAllocator(d->vkdev);
+        }
+        if (!d->weight_staging_vkallocator)
+        {
+            d->weight_staging_vkallocator = new VkWeightStagingAllocator(d->vkdev);
+        }
+
+        Option opt_upload = opt;
+        opt_upload.blob_vkallocator = d->weight_vkallocator;
+        opt_upload.workspace_vkallocator = d->weight_vkallocator;
+        opt_upload.staging_vkallocator = d->weight_staging_vkallocator;
+        //    double svk = ncnn::get_current_time();
+//        upload_lock.lock();
+        int uret = layer->upload_model(cmd, opt_upload);
+//        upload_lock.unlock();
+        if (uret != 0)
+        {
+            NCNN_LOGE("layer upload_model %d failed", (int)layer_idx);
+            return -1;
+        }
+
+//        printf("waie\n");
+//        cmd.submit_and_wait();
+    }
+
+    double e = ncnn::get_current_time();
+    tt+= (e-s);
+//    printf("upload %d %f %f\n", layer_idx, e-s, tt);
+//    upload_lock.unlock();
+    return 0;
+#endif // NCNN_VULKAN
+}
 #if NCNN_STDIO
 #if NCNN_STRING
 int Net::load_param(FILE* fp)
@@ -2781,9 +3987,15 @@ int Extractor::extract(int blob_index, Mat& feat, int type)
 
                 if (d->blob_mats[blob_index].dims == 0 && feat_gpu.dims != 0)
                 {
+
+                    double st = ncnn::get_current_time();
                     cmd.record_download(feat_gpu, d->blob_mats[blob_index], d->opt);
+                    double et = ncnn::get_current_time();
+//                    printf("++++++++++++++++++++ cmd.record_download %f \n", et-st);
 
                     cmd.submit_and_wait();
+                    double e = ncnn::get_current_time();
+//                    printf("--------------------- cmd.submit_and_wait %f\n", e-et);
 
 #if NCNN_BENCHMARK
                     std::vector<uint64_t> results(d->net->layers().size() * 2);
@@ -2804,7 +4016,10 @@ int Extractor::extract(int blob_index, Mat& feat, int type)
         }
         else
         {
+//            double s = ncnn::get_current_time();
             ret = d->net->d->forward_layer(layer_index, d->blob_mats, d->opt);
+//            double e = ncnn::get_current_time();
+//            printf("oouutt  %f\n", e-s);
         }
 #else
         ret = d->net->d->forward_layer(layer_index, d->blob_mats, d->opt);
@@ -2971,7 +4186,10 @@ int Extractor::extract(int blob_index, VkMat& feat, VkCompute& cmd)
         else
         {
             int layer_index = d->net->blobs()[blob_index].producer;
+            double s= ncnn::get_current_time();
             ret = d->net->d->forward_layer(layer_index, d->blob_mats, d->blob_mats_gpu, cmd, d->opt);
+            double e = ncnn::get_current_time();
+            printf("===================== forward_layer %f\n", e-s);
         }
     }
 
