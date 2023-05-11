@@ -12,4 +12,4 @@ adb shell taskset f0 /data/local/tmp/cold-infer-ncnn/benchcolddeploy /data/local
 adb shell taskset f0 /data/local/tmp/cold-infer-ncnn/benchcolddeploy /data/local/tmp/cold-infer-ncnn/efficientnet_b0 4 0 -1 0 0
 adb shell taskset f0 /data/local/tmp/cold-infer-ncnn/benchcolddeploy /data/local/tmp/cold-infer-ncnn/mobilenetv2_yolov3 4 0 -1 0 0
 adb shell taskset f0 /data/local/tmp/cold-infer-ncnn/benchcolddeploy /data/local/tmp/cold-infer-ncnn/mobilenet_yolo 4 0 -1 0 0
-#adb shell taskset f0 /data/local/tmp/cold-infer-ncnn/benchcolddeploy /data/local/tmp/cold-infer-ncnn/crnn_lite 4 0 -1 0 0
+adb shell taskset f0 /data/local/tmp/cold-infer-ncnn/benchcolddeploy /data/local/tmp/cold-infer-ncnn/crnn_lite 4 0 -1 0 0
