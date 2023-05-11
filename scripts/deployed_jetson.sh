@@ -13,3 +13,4 @@ cd ../build/benchmark || exit
 ./benchcolddeploy efficientnet_b0 2 0 0 0 1
 ./benchcolddeploy mobilenetv2_yolov3 2 0 0 0 1
 ./benchcolddeploy mobilenet_yolo 2 0 0 0 1
+./benchcolddeploy crnn_lite 2 0 0 0 1

@@ -48,6 +48,10 @@ for ((i=1; i<=10; i++))
 do
 adb shell taskset f0 /data/local/tmp/cold-infer-ncnn/benchcold /data/local/tmp/cold-infer-ncnn/mobilenet_yolo 4 0 -1 0 0
 done
+for ((i=1; i<=10; i++))
+do
+adb shell /data/local/tmp/cold-infer-ncnn/benchcold /data/local/tmp/cold-infer-ncnn/crnn_lite 4 0 -1 0 0
+done
 adb pull /data/local/tmp/cold-infer-ncnn/output.tmp.csv ./
 chmod +x ./get_output.py
 python3 ./get_output.py

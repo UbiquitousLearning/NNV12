@@ -205,11 +205,12 @@ void ReadDataReaderFile( const char* comment)
         isData.read(reinterpret_cast<char *>(&DRListSize),sizeof(DRListSize));
         DR_file_Vectors.resize(DRListSize);
         isData.read(reinterpret_cast<char *>(DR_file_Vectors.data()), DRListSize *sizeof(size_t) );
-
     }
     else
     {
-        printf("ERROR: Cannot open file ����.dat");
+        isData.close();
+        return;
+        printf("ERROR: Cannot open file ����.br.dat");
     }
     isData.close();
     printf("DR_file_Vectors:{");

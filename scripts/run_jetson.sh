@@ -50,6 +50,10 @@ for ((i=1; i<=10; i++))
 do
 ./benchcold mobilenet_yolo 2 0 0 0 1
 done
+for ((i=1; i<=10; i++))
+do
+./benchcold crnn_lite 2 0 0 0 1
+done
 mv ./output.tmp.csv ../../scripts
 cd ../../scripts || exit
 chmod +x ./get_output.py
