@@ -67,6 +67,7 @@ There are results get from Meizu 16T (Snapdragon 855).
    | efficientnet_b0    | 27.235      |
    | mobilenetv2_yolov3 | 25.258      |
    | mobilenet_yolo     | 25.953      |
+   | crnn_lite          | 68.267      |
 
 ---
 ## Benchmark on Jetson Nano GPU
@@ -127,3 +128,4 @@ There are results get from Jetson Nano.
    | efficientnet_b0    | 141.834     |
    | mobilenetv2_yolov3 | 150.258     |
    | mobilenet_yolo     | 91.953      |
+   | crnn_lite          | 241.672     |
